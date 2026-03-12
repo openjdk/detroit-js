@@ -276,7 +276,8 @@ JNIEXPORT void JNICALL Java_org_openjdk_engine_javascript_internal_V8_releaseRef
     if (ref != 0L) {
         V8Scope scope(env, fromReference<Isolate*>(isolateRef), Local<Context>());
         Persistent<void*>* value = fromReference<Persistent<void*>*>(ref);
-        value->Reset();
+        value->Reset(); // clear the reference for the V8 GC
+        delete value; // delete the handle itself
     }
 }
 
