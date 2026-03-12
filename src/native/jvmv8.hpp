@@ -86,22 +86,19 @@ class JVMV8IsolateData {
 private:
     JavaVM* jvm;                                 // JVM using isolate
     bool javaSupport;                            // If java support is added for JavaScript
-    Persistent<UnboundScript> bootScript;        // Script executed initially for Java support
-    Persistent<Symbol> javaObject;               // javaObject symbol used for unwrapping wrapped Java objects
-    Persistent<ObjectTemplate> globalTemplate;   // Global template used for all contexts
-    Persistent<ObjectTemplate> jvmTemplate;      // Template with JVM support
-    Persistent<ObjectTemplate> jsObjectTemplate; // Template with JSObject support
-    Persistent<ObjectTemplate> jsObjectCallableTemplate; // Template with callable JSObject support
-    Persistent<Value> securityToken;             // Shared security token (if all Contexts use the same token)
+    Global<UnboundScript> bootScript;        // Script executed initially for Java support
+    Global<Symbol> javaObject;               // javaObject symbol used for unwrapping wrapped Java objects
+    Global<ObjectTemplate> globalTemplate;   // Global template used for all contexts
+    Global<ObjectTemplate> jvmTemplate;      // Template with JVM support
+    Global<ObjectTemplate> jsObjectTemplate; // Template with JSObject support
+    Global<ObjectTemplate> jsObjectCallableTemplate; // Template with callable JSObject support
+    Global<Value> securityToken;             // Shared security token (if all Contexts use the same token)
 
     JVMV8InspectorClient* inspectorClient;
     jobject v8Isolate; // weak reference!
 
     // Constructor for jvmv8 isolate data
     JVMV8IsolateData(JNIEnv* env, Isolate* isolate, JavaVM* jvm, bool javaSupport, bool inspector);
-
-    // Destructor for jvmv8 isolate data
-    ~JVMV8IsolateData();
 
     // Set data in isolate
     static void setData(Isolate* isolate, JVMV8IsolateData* data) {
@@ -175,7 +172,7 @@ public:
     }
 
     // Get security token (non-Empty only if all Contexts share token).
-    static Persistent<Value>& getSecurityToken(Isolate* isolate) {
+    static Global<Value>& getSecurityToken(Isolate* isolate) {
         return getData(isolate)->securityToken;
     }
 
@@ -475,7 +472,7 @@ extern void fatal_error(const char* message);
 // Track usage of js object from java
 template<typename T>
 jlong track_js_value(Isolate* isolate, Local<T> local) {
-    return toReference(new Persistent<T>(isolate, local));
+    return toReference(new Global<T>(isolate, local));
 }
 
 // Create a Java V8Reference object

@@ -126,16 +126,6 @@ JVMV8IsolateData::JVMV8IsolateData(JNIEnv* env, Isolate* isolate, JavaVM* jvm,  
     v8Isolate = nullptr;
 }
 
-// Destructor for jvmv8 isolate data
-JVMV8IsolateData::~JVMV8IsolateData() {
-    TRACE("JVMV8IsolateData::~JVMV8IsolateData");
-    this->globalTemplate.Reset();
-    this->jsObjectTemplate.Reset();
-    this->jsObjectCallableTemplate.Reset();
-    this->jvmTemplate.Reset();
-    this->javaObject.Reset();
-}
-
 // Get JNI env indirectly from isolate
 JNIEnv* JVMV8IsolateData::getEnv(Isolate* isolate) {
     TRACE("JVMV8IsolateData::getEnv");
@@ -398,7 +388,7 @@ void run_boot_script(V8Scope& scope) {
 }
 
 struct track_value_callback_info {
-    Persistent<External> persistent;
+    Global<External> global;
     jobject object;
 
     track_value_callback_info(jobject object)
@@ -424,7 +414,6 @@ static void track_value_callback(const WeakCallbackInfo<track_value_callback_inf
         */
 
         jni.DeleteGlobalRef(info->object);
-        info->persistent.Reset();
         delete info;
     }
 }
@@ -441,9 +430,9 @@ static Local<External> track_java_value(V8Scope& scope, jobject object) {
     // Set callback to handle gc of external
     track_value_callback_info* info = new track_value_callback_info(globalRef);
     // Have persistent track external
-    info->persistent.Reset(scope.isolate, external);
+    info->global.Reset(scope.isolate, external);
     // track_value_callback will clean up the global ref & persistent & delete the info
-    info->persistent.SetWeak(info, track_value_callback, WeakCallbackType::kParameter);
+    info->global.SetWeak(info, track_value_callback, WeakCallbackType::kParameter);
 
     return external;
 }
@@ -571,7 +560,7 @@ jlong v2j_unboundscript(V8Scope& scope, MaybeLocal<Script> local) {
 // Convert unbound script reference to V8 UnboundScript
 Local<UnboundScript> j2v_unboundscript(V8Scope& scope, jlong unboundScriptRef) {
     TRACE("j2v_unboundscript");
-    const Persistent<UnboundScript>* script = fromReference<const Persistent<UnboundScript>*>(unboundScriptRef);
+    const Global<UnboundScript>* script = fromReference<const Global<UnboundScript>*>(unboundScriptRef);
     return script->Get(scope.isolate);
 }
 
@@ -725,7 +714,7 @@ Local<Value> j2v(V8Scope& scope, jobject object) {
         jlong reference = jni.CallLongMethod(object, v8ObjectCheckAndGetReferenceMethodID, scope.isolateRef());
         assert(!jni.checkException());
         if (reference != 0L) {
-            const Persistent<Object>* obj = fromReference<const Persistent<Object>*>(reference);
+            const Global<Object>* obj = fromReference<const Global<Object>*>(reference);
             return obj->Get(scope.isolate);
         }
         // Not the same isolate - needs wrapping
@@ -733,7 +722,7 @@ Local<Value> j2v(V8Scope& scope, jobject object) {
         jlong reference = jni.CallLongMethod(object, v8SymbolCheckAndGetReferenceMethodID, scope.isolateRef());
         assert(!jni.checkException());
         if (reference != 0L) {
-            const Persistent<Symbol>* symbol = fromReference<const Persistent<Symbol>*>(reference);
+            const Global<Symbol>* symbol = fromReference<const Global<Symbol>*>(reference);
             return symbol->Get(scope.isolate);
         }
         // Not the same isolate - needs wrapping
@@ -763,8 +752,8 @@ Local<Value> j2v_reference(V8Scope& scope, jlong objectRef) {
 
 Local<Value> j2v_reference(Isolate* isolate, jlong objectRef) {
     TRACE("j2v_reference");
-    Persistent<Value>* persistent = fromReference<Persistent<Value>*>(objectRef);
-    return persistent->Get(isolate);
+    Global<Value>* global = fromReference<Global<Value>*>(objectRef);
+    return global->Get(isolate);
 }
 
 Local<Context> j2v_context(Isolate* isolate, jlong objectRef) {
