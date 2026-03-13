@@ -393,7 +393,6 @@ struct track_value_callback_info {
 
     track_value_callback_info(jobject object)
         : object(object) {
-        
     }
 };
 
