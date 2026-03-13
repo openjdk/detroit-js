@@ -1,0 +1,78 @@
+#
+# Copyright (c) 2026, Oracle and/or its affiliates. All rights reserved.
+# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+#
+# This code is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License version 2 only, as
+# published by the Free Software Foundation.  Oracle designates this
+# particular file as subject to the "Classpath" exception as provided
+# by Oracle in the LICENSE file that accompanied this code.
+#
+# This code is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+# version 2 for more details (a copy is included in the LICENSE file that
+# accompanied this code).
+#
+# You should have received a copy of the GNU General Public License version
+# 2 along with this work; if not, write to the Free Software Foundation,
+# Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+#
+# Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+# or visit www.oracle.com if you need additional information or have any
+# questions.
+#
+
+include $(TOPDIR)/make/Common.gmk
+include $(TOPDIR)/make/SetupJava.gmk
+
+ifeq ($(origin JMH), undefined)
+  $(error JMH variable must be set to directory with the following jars \
+    jmh-core, jmh-generator-annprocess, jopt-simple, and commons-math3)
+endif
+
+JMH_CORE_JAR := $(wildcard $(JMH)/jmh-core-*.jar)
+JMH_ANNPROC_JAR := $(wildcard $(JMH)/jmh-generator-annprocess-*.jar)
+JMH_JOPT_JAR := $(wildcard $(JMH)/jopt-simple-*.jar)
+JMH_MATH_JAR := $(wildcard $(JMH)/commons-math3-*.jar)
+
+ifeq ($(and $(JMH_CORE_JAR),$(JMH_ANNPROC_JAR),$(JMH_JOPT_JAR),$(JMH_MATH_JAR)),)
+  $(error Not all required jars were found in JMH directory)
+endif
+
+JMH_CP := $(JMH_CORE_JAR):$(JMH_JOPT_JAR):$(JMH_MATH_JAR)
+JMH_PROCESSOR_PATH := $(JMH_ANNPROC_JAR):$(JMH_CORE_JAR)
+
+MICRO_SUPPORT_DIR := $(BUILD_DIR)/micro-support
+MICRO_SCRATCH_DIR := $(MICRO_SUPPORT_DIR)/scratch
+MICRO_CLASSES_DIR := $(MICRO_SUPPORT_DIR)/classes
+BENCHMARK_JAR := $(MICRO_SUPPORT_DIR)/benchmarks.jar
+
+MICRO_SOURCE_DIR := $(TOPDIR)/micro
+MICRO_SOURCES := $(shell $(FIND) $(MICRO_SOURCE_DIR) -name "*.java")
+MICRO_CLASSES_MARKER = $(MARKERS_DIR)/micro.classes.marker
+
+MICRO_OPTIONS ?=
+
+$(MICRO_CLASSES_MARKER): $(MICRO_SOURCES)
+	@$(RM) -rf $(MICRO_CLASSES_DIR)
+	@$(MKDIR) -p $(MICRO_CLASSES_DIR)
+	$(JAVAC) \
+	  -p $(DIST_JAR) \
+	  --add-modules $(JVMV8_MODULE_NAME) \
+      -cp $(JMH_CP) \
+      -processorpath $(JMH_PROCESSOR_PATH) \
+      -d $(MICRO_CLASSES_DIR) \
+      $(MICRO_SOURCES)
+	@touch $@
+
+micro: $(MICRO_CLASSES_MARKER)
+	@$(RM) -rf $(MICRO_SCRATCH_DIR)
+	@$(MKDIR) -p $(MICRO_SCRATCH_DIR)
+	@$(CD) $(MICRO_SCRATCH_DIR)
+	$(JAVA) \
+	  -p $(DIST_JAR) \
+	  --add-modules $(JVMV8_MODULE_NAME) \
+	  -cp $(JMH_CP):$(MICRO_CLASSES_DIR) \
+	  --enable-native-access=$(JVMV8_MODULE_NAME) \
+	  org.openjdk.jmh.Main $(MICRO_OPTIONS)
