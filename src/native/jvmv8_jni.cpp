@@ -258,7 +258,7 @@ JNIEXPORT jobject JNICALL Java_org_openjdk_engine_javascript_internal_V8_createG
     }
 
     if (setSecurityToken) {
-        Persistent<Value>& securityToken = JVMV8IsolateData::getSecurityToken(isolate);
+        Global<Value>& securityToken = JVMV8IsolateData::getSecurityToken(isolate);
         if (securityToken.IsEmpty()) {
             // first Context - save security token for future use
             securityToken.Reset(isolate, context->GetSecurityToken());
@@ -275,8 +275,8 @@ JNIEXPORT void JNICALL Java_org_openjdk_engine_javascript_internal_V8_releaseRef
     TRACE("Java_org_openjdk_engine_javascript_internal_V8_releaseReference0");
     if (ref != 0L) {
         V8Scope scope(env, fromReference<Isolate*>(isolateRef), Local<Context>());
-        Persistent<void*>* value = fromReference<Persistent<void*>*>(ref);
-        value->Reset();
+        Global<Value>* value = fromReference<Global<Value>*>(ref);
+        delete value; // delete the handle
     }
 }
 
