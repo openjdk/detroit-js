@@ -1,0 +1,6 @@
+To run jtreg tests in the current directory, put jtreg's bin directory in $PATH and run ./runjtreg
+
+Test scripts under ./security directory are skipped. You need to manually run those by
+
+cd ./security
+./runtests.sh

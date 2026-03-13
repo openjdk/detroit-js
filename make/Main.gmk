@@ -1,0 +1,104 @@
+#
+# Copyright (c) 2025, Oracle and/or its affiliates. All rights reserved.
+# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+#
+# This code is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License version 2 only, as
+# published by the Free Software Foundation.  Oracle designates this
+# particular file as subject to the "Classpath" exception as provided
+# by Oracle in the LICENSE file that accompanied this code.
+#
+# This code is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+# version 2 for more details (a copy is included in the LICENSE file that
+# accompanied this code).
+#
+# You should have received a copy of the GNU General Public License version
+# 2 along with this work; if not, write to the Free Software Foundation,
+# Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+#
+# Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+# or visit www.oracle.com if you need additional information or have any
+# questions.
+#
+
+include $(TOPDIR)/make/Common.gmk
+
+MAKE_ARGS := TOPDIR=$(TOPDIR)
+
+all: dist
+
+TARGETS += all
+
+
+jvmv8: v8
+	$(CD) $(TOPDIR)/make && $(MAKE) $(MAKE_ARGS) -f Jvmv8.gmk all
+
+TARGETS += jvmv8
+
+
+get-v8:
+	$(CD) $(TOPDIR)/make && $(MAKE) $(MAKE_ARGS) -f V8.gmk $@
+
+TARGETS += v8 get-v8
+
+
+v8:
+	$(CD) $(TOPDIR)/make && $(MAKE) $(MAKE_ARGS) -f V8.gmk all
+
+TARGETS += v8 get-v8
+
+
+dist: jvmv8
+	$(CD) $(TOPDIR)/make && $(MAKE) $(MAKE_ARGS) -f Dist.gmk all
+
+TARGETS += dist
+
+
+bundles: dist
+	$(CD) $(TOPDIR)/make && $(MAKE) $(MAKE_ARGS) -f Bundles.gmk all
+
+TARGETS += bundles
+
+
+TEST_TARGETS_INTERACTIVE := runshell
+TEST_TARGETS := test quicktest helloworld gcstresscontexts gcstressisolates
+$(TEST_TARGETS) $(TEST_TARGETS_INTERACTIVE): dist
+	$(CD) $(TOPDIR)/make && $(MAKE) $(MAKE_ARGS) -f Test.gmk $@
+
+TARGETS += $(TEST_TARGETS)
+
+
+test-only:
+	$(CD) $(TOPDIR)/make && $(MAKE) $(MAKE_ARGS) -f Test.gmk $@
+
+TARGETS += test-only
+
+
+test-all: $(TEST_TARGETS)
+
+TARGETS += test-all
+
+
+clean:
+	rm -fr $(BUILD_DIR)
+
+TARGETS += clean
+
+
+####
+#
+# Since v8 takes so (relatively) long to build, and we so rarely change it
+# this convenience target makes it possible to do clean everything in the
+# build dir _except_ v8.
+#
+V8_DIR := $(BUILD_DIR)/$(firstword $(subst /,$(SPACE),$(patsubst $(BUILD_DIR)/%,%,$(V8_BUILD_DIR))))
+ALL_BUT_V8 := $(filter-out $(V8_DIR),$(wildcard $(BUILD_DIR)/*))
+
+clean-all-but-v8:
+	$(RM) -fr $(ALL_BUT_V8)
+
+TARGETS += clean-all-but-v8
+
+.PHONY: $(TARGETS)

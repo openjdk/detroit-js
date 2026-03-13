@@ -1,0 +1,100 @@
+#
+# Copyright (c) 2025, Oracle and/or its affiliates. All rights reserved.
+# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+#
+# This code is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License version 2 only, as
+# published by the Free Software Foundation.  Oracle designates this
+# particular file as subject to the "Classpath" exception as provided
+# by Oracle in the LICENSE file that accompanied this code.
+#
+# This code is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+# version 2 for more details (a copy is included in the LICENSE file that
+# accompanied this code).
+#
+# You should have received a copy of the GNU General Public License version
+# 2 along with this work; if not, write to the Free Software Foundation,
+# Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+#
+# Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+# or visit www.oracle.com if you need additional information or have any
+# questions.
+#
+
+include Common.gmk
+include SetupJava.gmk
+
+DOCS := $(shell find $(JVMV8_DOCS_DIR) -type f)
+
+SAMPLES_DIR := $(TOPDIR)/samples
+SAMPLES := $(filter-out $(SAMPLES_DIR)/failing,$(wildcard $(SAMPLES_DIR)/*))
+
+JMODS_DIR := $(BUILD_DIR)/jmods
+JMOD_FILE := $(JMODS_DIR)/$(JVMV8_MODULE_NAME).jmod
+JMODS_MARKER := $(MARKERS_DIR)/jmods.marker
+
+ifneq ($(GIT_REV_SHORT),)
+    DIST_GIT_REV_FILE := $(DIST_DIR)/.git-rev
+endif
+
+BIN_FILES := $(TOPDIR)/bin/jjs.sh $(TOPDIR)/bin/run.sh
+
+DIST_BIN_DIR := $(DIST_DIR)/bin
+DIST_DOCS_DIR := $(DIST_DIR)/docs
+DIST_JMODS_DIR := $(DIST_DIR)/jmods
+DIST_SAMPLES_DIR := $(DIST_DIR)/samples
+
+DIST_MARKER := $(MARKERS_DIR)/dist.marker
+
+$(JMODS_MARKER): $(JVMV8_JAR) $(JVMV8_LIB)
+	@$(MKDIR) -p $(@D)
+	@$(RM) -rf $(JMODS_DIR)
+	@$(MKDIR) -p $(JMODS_DIR)
+	@$(JMOD) --class-path $(JVMV8_JAR) \
+	    --libs $(JVMV8_LIB_DIR) \
+	    create \
+	    $(JMOD_FILE)
+	@$(TOUCH) $@
+
+$(DIST_MARKER): $(JMODS_MARKER) $(JVMV8_JAR) $(JVMV8_LIB) $(DOCS) $(SAMPLES)
+	@$(MKDIR) -p $(@D)
+	$(RM) -rf $(DIST_DIR)
+	$(MKDIR) -p $(DIST_DIR)
+ifneq ($(DIST_GIT_REV_FILE),)
+	@echo "$(GIT_REV_SHORT)" > $(DIST_GIT_REV_FILE)
+endif
+	$(MKDIR) -p $(DIST_BIN_DIR)
+	$(CP) $(TOPDIR)/ADDITIONAL_LICENSE_INFO $(DIST_DIR)
+	$(CP) $(TOPDIR)/LICENSE $(DIST_DIR)
+	$(CP) -r $(TOPDIR)/legal $(DIST_DIR)
+	$(CP) $(TOPDIR)/doc/README.md $(DIST_DIR)
+	$(CP) $(BIN_FILES) $(DIST_BIN_DIR)
+	$(CP) -r $(JMODS_DIR) $(DIST_JMODS_DIR)
+	$(MKDIR) -p $(DIST_LIB_DIR)
+	$(CP) -r $(JVMV8_LIB) $(DIST_LIB_DIR)
+	$(MKDIR) -p $(dir $(DIST_JAR))
+	$(CP) $(JVMV8_JAR) $(DIST_JAR)
+	$(CP) -r $(JVMV8_DOCS_DIR) $(DIST_DOCS_DIR)
+	$(MKDIR) -p $(DIST_SAMPLES_DIR)
+	$(CP) -r $(SAMPLES) $(DIST_SAMPLES_DIR)
+	@$(TOUCH) $@
+
+
+all: $(DIST_MARKER)
+
+TARGETS += all
+
+
+jmod: $(DIST_JMODS_MARKER)
+
+TARGETS += jmod
+
+
+native: $(NATIVE_MARKER)
+
+TARGETS += native
+
+
+.PHONY: $(TARGETS)

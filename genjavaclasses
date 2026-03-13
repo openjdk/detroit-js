@@ -1,0 +1,221 @@
+/*
+ * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
+ */
+
+// ----- JAVA CLASSES ----- //
+
+var Arrays = Java.type("java.util.Arrays");
+var Files = Java.type("java.nio.file.Files");
+var Paths = Java.type("java.nio.file.Paths");
+var Strings = Java.type("java.lang.String");
+var StringArray = Java.type("java.lang.String[]");
+var StandardCharsets = Java.type("java.nio.charset.StandardCharsets");
+
+var UTF_8 = StandardCharsets.UTF_8;
+
+// ----- CONSTANTS ----- //
+
+var FILE_BASE = "./src/native/jvmv8_java_classes";
+var BEGIN_TAG = "// $BEGIN ";
+var END_TAG = "// $END ";
+var EXTERN_SECTION = "JAVA_CLASS_EXTERN";
+var DECL_SECTION = "JAVA_CLASS_DECL";
+var LOOKUP_SECTION = "JAVA_CLASS_LOOKUP";
+var DELETE_SECTION = "JAVA_CLASS_DELETE";
+
+// ----- SECTION CLASS ----- //
+
+function Section(lines, index) {
+    this.lines = lines;
+    this.begin = index;
+    this.end = index;
+}
+
+Section.prototype.toString = function toString() {
+    if (this.name) {
+        return "Section(\"" + this.name + "\", " + this.begin + ", " + this.end + ")";
+    } else {
+        return "Section(" + this.begin + ", " + this.end + ")";
+    }
+}
+
+Section.prototype.extract = function extract() {
+    if (this.name) {
+        return this.lines.slice(this.begin + 1, this.end);
+    } else {
+        return this.lines.slice(this.begin, this.end + 1);
+    }
+}
+
+Section.prototype.print = function print(lines) {
+    this.extract().forEach(function(line) {
+        lines.push(line);
+    });
+}
+
+// ----- GENERATE ----- //
+
+var classLines = readAll(FILE_BASE + ".cpp");
+var headerLines = readAll(FILE_BASE + ".hpp");
+
+var classSections = scanSections(classLines);
+var headerSections = scanSections(headerLines);
+
+var variables = classSections[LOOKUP_SECTION].extract().map(function(line) {
+    var match = /\s*(\w+) = /.exec(line);
+    return match ? match[1] : undefined;
+});
+
+classSections[DECL_SECTION].print = function print(lines) {
+   lines.push(BEGIN_TAG + DECL_SECTION);
+
+    variables.forEach(function(variable) {
+        if (!variable) {
+            // do nothing
+        } else if (variable.endsWith("Class")) {
+            lines.push("jclass " + variable + " = nullptr;");
+        } else if (variable.endsWith("MethodID")) {
+            lines.push("jmethodID " + variable + " = nullptr;");
+        } else if (variable.endsWith("FieldID")) {
+            lines.push("jfieldID " + variable + " = nullptr;");
+        } else {
+            lines.push("// " + variable);
+        }
+    });
+
+    lines.push(END_TAG + DECL_SECTION);
+}
+
+classSections[LOOKUP_SECTION].print = function print(lines) {
+    lines.push(BEGIN_TAG + LOOKUP_SECTION);
+    this.__proto__.print.call(this, lines);
+    lines.push(END_TAG + LOOKUP_SECTION);
+}
+
+classSections[DELETE_SECTION].print = function print(lines) {
+    lines.push(BEGIN_TAG + DELETE_SECTION);
+
+    variables.forEach(function(variable) {
+        if (variable && variable.endsWith("Class")) {
+            lines.push("    jni.DeleteGlobalRef(" + variable + ");");
+        }
+    });
+
+    lines.push(END_TAG + DELETE_SECTION);
+}
+
+headerSections[EXTERN_SECTION].print = function print(lines) {
+    lines.push(BEGIN_TAG + EXTERN_SECTION);
+
+    variables.forEach(function(variable) {
+        if (!variable) {
+            // do nothing
+        } else if (variable.endsWith("Class")) {
+            lines.push("extern jclass " + variable + ";");
+        } else if (variable.endsWith("MethodID")) {
+            lines.push("extern jmethodID " + variable + ";");
+        } else if (variable.endsWith("FieldID")) {
+            lines.push("extern jfieldID " + variable + ";");
+        } else {
+            lines.push("// " + variable);
+        }
+    });
+
+    lines.push(END_TAG + EXTERN_SECTION);
+}
+
+var classLines = [];
+var headerLines = [];
+
+classSections.forEach(function(section) { section.print(classLines); });
+headerSections.forEach(function(section) { section.print(headerLines); });
+
+writeAll(FILE_BASE + ".hpp", headerLines);
+writeAll(FILE_BASE + ".cpp", classLines);
+
+// ----- SUPPORT FUNCTIONS ----- //
+
+function readAll(filename) {
+    var path = Paths.get(filename);
+    var list = Files.readAllLines(path, UTF_8);
+    var lines = [];
+    list.forEach(function(line) {
+        lines.push(line);
+    });
+
+    return lines;
+}
+
+function writeAll(filename, lines) {
+    var array = Java.to(lines, StringArray);
+    var list = Arrays.asList(array);
+    var path = Paths.get(filename);
+    Files.write(path, list, UTF_8);
+}
+
+function scanSections(lines) {
+    var section = new Section(lines, 0);
+    var sections = [ section ];
+    var name;
+
+    lines.forEach(function(line, i) {
+
+        if (name) {
+            section.end = i;
+
+            if (line.startsWith(END_TAG)) {
+                section = new Section(lines, i + 1);
+                sections.push(section);
+                name = undefined;
+            }
+        } else {
+            if (line.startsWith(BEGIN_TAG)) {
+                section = new Section(lines, i);
+                sections.push(section);
+                name = line.substring(BEGIN_TAG.length);
+                section.name = name;
+                sections[name] = section;
+            } else {
+                section.end = i;
+            }
+        }
+    });
+
+    return sections;
+}
+
+function printSections(sections) {
+    print(Object.keys(sections));
+    sections.forEach(function(section, i) {
+        print(i + ": " + section.begin + ", " + section.end);
+    });
+
+    for (var name in sections) {
+        print(name + ": " + sections[name]);
+    }
+
+    print();
+}
+
+
