@@ -1,0 +1,110 @@
+#
+# Copyright (c) 2018, 2025, Oracle and/or its affiliates. All rights reserved.
+# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+#
+# This code is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License version 2 only, as
+# published by the Free Software Foundation.  Oracle designates this
+# particular file as subject to the "Classpath" exception as provided
+# by Oracle in the LICENSE file that accompanied this code.
+#
+# This code is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+# version 2 for more details (a copy is included in the LICENSE file that
+# accompanied this code).
+#
+# You should have received a copy of the GNU General Public License version
+# 2 along with this work; if not, write to the Free Software Foundation,
+# Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+#
+# Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+# or visit www.oracle.com if you need additional information or have any
+# questions.
+#
+
+include $(TOPDIR)/make/Common.gmk
+
+####
+#
+# Depot tools
+#
+
+ifeq ($(DEPOT_TOOLS),)
+    GCLIENT_MAYBE := $(shell command -v gclient)
+    ifeq ($(GCLIENT_MAYBE),)
+        $(error Could not locate depot tools using PATH, please set DEPOT_TOOLS or add to PATH)
+    endif
+    DEPOT_TOOLS := $(dir $(GCLIENT_MAYBE))
+endif
+
+FETCH := $(DEPOT_TOOLS)fetch
+GCLIENT := $(DEPOT_TOOLS)gclient
+GN := $(DEPOT_TOOLS)gn
+
+
+ifeq ($(V8_REVISION),)
+    $(error V8_REVISION not set)
+endif
+
+V8_CONF_FILE := $(V8_CONF_DIR)/$(V8_TARGET_CPU).args.gn
+
+V8_BUILD_MARKER := $(MARKERS_DIR)/v8.build.marker
+
+all: build
+
+TARGETS += all
+
+
+get-v8: $(V8_REPO)
+
+TARGETS += get-v8
+
+
+build: $(V8_BUILD_MARKER)
+
+TARGETS += build
+
+
+$(V8_BUILD_MARKER): .FORCE $(V8_CONF_FILE)
+	$(MKDIR) -p $(@D)
+	$(MKDIR) -p $(V8_BUILD_DIR)
+	$(CP) $(V8_CONF_FILE) $(V8_BUILD_DIR)/args.gn
+	$(CD) $(V8_REPO) && \
+	$(GN) gen $(V8_BUILD_DIR) && \
+	$(NINJA) -C $(V8_BUILD_DIR)
+	$(TOUCH) $@
+
+
+$(V8_REPO):
+	@$(MKDIR) -p $(@D)
+	@$(CD) $(@D) && $(FETCH) v8
+	@$(CD) $(V8_REPO) && $(GCLIENT) sync -r $(V8_REVISION)
+ifeq ($(HOST_OS), linux)
+# Always install the arm64 sysroot to ensure it's theere for cross compilation
+	@$(CD) $(V8_REPO) && build/linux/sysroot_scripts/install-sysroot.py --arch=arm64
+endif
+
+
+switchv8-stable:
+	@$(CD) $(V8_REPO) && \
+	$(GIT) fetch && \
+	$(GIT) switch chromium/5481
+	$(DEPOT_TOOLS_GCLIENT) sync -D
+	$(DEPOT_TOOLS_GCLIENT) sync --with_branch_heads --with_tags
+
+TARGETS += switchv8-stable
+
+
+switchv8-tip:
+	@$(CD) $(V8_REPO) && \
+	$(GIT) fetch && \
+	$(GIT) switch master
+	$(DEPOT_TOOLS_GCLIENT) sync -D
+	$(DEPOT_TOOLS_GCLIENT) sync --with_branch_heads --with_tags
+
+TARGETS += switchv8-tip
+
+
+.PHONY: $(TARGETS)
+.FORCE:

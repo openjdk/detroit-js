@@ -1,0 +1,107 @@
+#
+# Copyright (c) 2025, Oracle and/or its affiliates. All rights reserved.
+# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+#
+# This code is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License version 2 only, as
+# published by the Free Software Foundation.  Oracle designates this
+# particular file as subject to the "Classpath" exception as provided
+# by Oracle in the LICENSE file that accompanied this code.
+#
+# This code is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+# version 2 for more details (a copy is included in the LICENSE file that
+# accompanied this code).
+#
+# You should have received a copy of the GNU General Public License version
+# 2 along with this work; if not, write to the Free Software Foundation,
+# Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+#
+# Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+# or visit www.oracle.com if you need additional information or have any
+# questions.
+#
+
+include $(TOPDIR)/make/Common.gmk
+include $(TOPDIR)/make/SetupJava.gmk
+
+ifneq ($(HOST_PLATFORM), $(TARGET_PLATFORM))
+    $(info WARNING: Trying to run tests on a cross build:)
+    $(info    Host:   $(HOST_PLATFORM))
+    $(info    Target: $(TARGET_PLATFORM))
+    $(info This is unlikely to work, but continuing nevertheless...)
+endif
+
+ifeq ($(TEST),)
+    TEST := .
+endif
+
+TEST_DIR := $(TOPDIR)/test
+
+ifneq ($(JT_HOME),)
+    JTREG := $(JT_HOME)/bin/jtreg
+else
+    JTREG := jtreg
+endif
+
+TEST_SUPPORT_DIR := $(BUILD_DIR)/test-support
+JTREG_WORK_DIR := $(TEST_SUPPORT_DIR)/JTwork
+JTREG_REPORT_DIR := $(TEST_SUPPORT_DIR)/JTreport
+
+JTREG_BASE_ARGS := \
+    -workDir:$(JTREG_WORK_DIR) \
+    -reportDir:$(JTREG_REPORT_DIR) \
+    -cpa:$(JVMV8_JAR) \
+    -conc:auto \
+    -verbose:summary,fail,error \
+    -retain:fail,error \
+    #
+
+DIST_JAVA_OPTIONS_AS_VMOPTIONS := $(addprefix -vmoption:,$(DIST_JAVA_OPTIONS))
+
+JTREG_BASE_ARGS += \
+    -jdk:$(JAVA_HOME) \
+    $(DIST_JAVA_OPTIONS_AS_VMOPTIONS) \
+    #
+
+SHELL_CLASS_NAME := org.openjdk.engine.javascript.Main
+
+
+# Run all the jtreg tests
+test test-only:
+	@$(JTREG) -version > /dev/null 2>&1 || ($(ECHO) "Failed to execute $(JTREG), please set JT_HOME or add jtreg to your PATH"; exit 1)
+	@$(RM) -rf $(JTREG_WORK_DIR) $(JTREG_REPORT_DIR)
+	@$(MKDIR) -p $(JTREG_WORK_DIR) $(JTREG_REPORT_DIR)
+	$(CD) $(TEST_DIR) && $(JTREG) $(JTREG_BASE_ARGS) $(TEST)
+
+
+# Run jvmv8 as a shell
+runshell:
+	@$(JAVA) $(DIST_JAVA_OPTIONS) $(SHELL_CLASS_NAME) -cp . -l v8
+
+
+# Run a quick smoke test
+quicktest:
+	@$(MKDIR) -p $(BUILD_DIR)/tmp
+	@$(CAT) $(TEST_DIR)/assert.js $(TEST_DIR)/test.js > $(BUILD_DIR)/tmp/test.js
+	$(JAVA) $(DIST_JAVA_OPTIONS) $(SHELL_CLASS_NAME) -cp . -l v8 $(BUILD_DIR)/tmp/test.js
+
+
+# Run a quick smoke test
+helloworld:
+	@$(MKDIR) -p $(BUILD_DIR)/tmp
+	@$(CAT) $(TEST_DIR)/assert.js $(TEST_DIR)/helloworld.js > $(BUILD_DIR)/tmp/helloworld.js
+	@$(JAVA) $(DIST_JAVA_OPTIONS) $(SHELL_CLASS_NAME) -cp . -l v8 $(BUILD_DIR)/tmp/helloworld.js
+
+
+# Run the context stress test
+gcstresscontexts:
+	@$(JAVAC) $(TEST_DIR)/GCStressContexts.java -d $(BUILD_DIR)
+	@$(JAVA) $(DIST_JAVA_OPTIONS) $(RUN_FLAGS) -cp $(BUILD_DIR) GCStressContexts 1000 false >$(BUILD_DIR)/gcstresscontexts 2>&1
+
+
+# Run the isolate stress test
+gcstressisolates:
+	@$(JAVAC) $(TEST_DIR)/GCStressIsolates.java -d $(BUILD_DIR)
+	@$(JAVA) $(DIST_JAVA_OPTIONS) $(RUN_FLAGS) -cp $(BUILD_DIR) GCStressIsolates 1000 false >$(BUILD_DIR)/gcstressisolates 2>&1

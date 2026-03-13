@@ -1,0 +1,273 @@
+
+# Copyright (c) 2018, 2025, Oracle and/or its affiliates. All rights reserved.
+# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+#
+# This code is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License version 2 only, as
+# published by the Free Software Foundation.  Oracle designates this
+# particular file as subject to the "Classpath" exception as provided
+# by Oracle in the LICENSE file that accompanied this code.
+#
+# This code is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+# version 2 for more details (a copy is included in the LICENSE file that
+# accompanied this code).
+#
+# You should have received a copy of the GNU General Public License version
+# 2 along with this work; if not, write to the Free Software Foundation,
+# Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+#
+# Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+# or visit www.oracle.com if you need additional information or have any
+# questions.
+#
+
+include $(TOPDIR)/make/Common.gmk
+include $(TOPDIR)/make/SetupJava.gmk
+
+JVMV8_SRC_DIR := $(TOPDIR)/src
+
+JVMV8_JAVA_SRC_DIR := $(JVMV8_SRC_DIR)/java
+JVMV8_JAVA_SRCS := $(shell $(FIND) $(JVMV8_JAVA_SRC_DIR) -name "*.java")
+JVMV8_JAVA_RELEASE := 25
+
+JVMV8_JAVA_RESOURCES_DIR := $(JVMV8_JAVA_SRC_DIR)/org/openjdk/engine/javascript/internal/resources
+JVMV8_JAVA_RESOURCES := $(shell $(FIND) $(JVMV8_JAVA_RESOURCES_DIR) -type f)
+
+JVMV8_GEN_INCLUDE_DIR := $(JVMV8_BUILD_DIR)/include
+JVMV8_JAVA_CLASSES_DIR := $(JVMV8_BUILD_DIR)/classes
+JVMV8_JAVA_CLASSES_MARKER := $(MARKERS_DIR)/jvmv8.classes.marker
+# Provide a dummy directory for the redundant class files produced by javac -h
+JVMV8_DUMMY_JAVA_CLASSES_DIR := $(JVMV8_BUILD_DIR)/classes-dummy
+
+JVMV8_JAR_MANIFEST_FILE := $(JVMV8_JAVA_SRC_DIR)/META-INF/MANIFEST.MF
+JVMV8_JAR_MANIFEST_FILE_WITH_VERSION := $(JVMV8_BUILD_DIR)/MANIFEST.MF
+
+JVMV8_NATIVE_SRC_DIR := $(JVMV8_SRC_DIR)/native
+JVMV8_NATIVE_ALL_FILES := $(shell $(FIND) $(JVMV8_NATIVE_SRC_DIR) -type f)
+JVMV8_NATIVE_SRC_FILES := $(shell $(FIND) $(JVMV8_NATIVE_SRC_DIR) -name "*.cpp")
+
+JAVA_HOME_INCLUDES := $(addprefix -I,$(JAVA_HOME_INCLUDE_DIRS))
+
+JVMV8_DOCS_MARKER := $(MARKERS_DIR)/jvmv8.javadoc.marker
+
+CXXFLAGS := -shared -fPIC -fpermissive -std=c++20
+
+ifneq ($(DEBUG_LEVEL), debug)
+    CXXFLAGS += -g
+endif
+
+ifneq ($(HOST_CPU), $(TARGET_CPU))
+    CXXFLAGS += --target=$(CLANG_TARGET)
+endif
+
+CXXFLAGS += $(JAVA_HOME_INCLUDES)
+
+V8_CXXFLAGS := \
+    $(V8_DEFINES) \
+    -nostdinc++ \
+    $(addprefix -I,$(V8_INCLUDE_DIRS)) \
+    #
+
+CXXFLAGS += $(V8_CXXFLAGS)
+
+V8_MONOLITH_LIB := $(V8_BUILD_DIR)/obj/libv8_monolith.a
+
+V8_MONOLITH_LIB_NINJA := $(V8_BUILD_DIR)/obj/v8_monolith.ninja
+V8_MONOLITH_LIB_RLIB_DEPS_RAW := $(shell $(CAT) $(V8_MONOLITH_LIB_NINJA) | $(AWK) 'BEGIN { FOUND=0 }; /build obj\/libv8_monolith.a:/ { FOUND=1 }; FOUND && /  rlibs =/ { print; FOUND=0 }' | $(SED) 's/.*=[ ]*//')
+
+ifeq ($(V8_MONOLITH_LIB_RLIB_DEPS_RAW),)
+    # No rlibs involved -> no repackaging needed
+    JVMV8_V8_MONOLITH_RLIB :=
+else
+    V8_MONOLITH_LIB_RLIB_DEPS := $(addprefix $(V8_BUILD_DIR)/,$(V8_MONOLITH_LIB_RLIB_DEPS_RAW))
+
+    JVMV8_REPACK_V8_MONOLITH_DIR := $(JVMV8_BUILD_DIR)/v8_monolith_repack
+    JVMV8_V8_MONOLITH_RLIB := $(JVMV8_REPACK_V8_MONOLITH_DIR)/libv8_monolith_rlib.a
+endif
+
+
+ifeq ($(TARGET_OS), macos)
+    CXXFLAGS += \
+        -headerpad_max_install_names \
+        -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk \
+        #
+
+    LLVM_AR := $(V8_REPO)/third_party/llvm-build/Release+Asserts/bin/llvm-ar
+    AR := $(LLVM_AR)
+
+    JVMV8_LINKFLAGS :=
+
+    # Set up link path (find the other dependency libraries next to the jvmv8 library)
+    JVMV8_LINKFLAGS += -Wl,-rpath,@loader_path/.
+
+    V8_LINKFLAGS :=
+
+    # libc++.a and libc++abi.a end up being "thin" archives on macOS and ld doesn't
+    # understand thin archives. Let's link with the corresponding/referenced object
+    # files explicitly instead
+    LIBCXX_A := $(V8_BUILD_DIR)/obj/buildtools/third_party/libc++/libc++.a
+    LIBCXX_OBJ_FILES := $(shell $(LLVM_AR) t $(LIBCXX_A))
+    LIBCXXABI_A := $(V8_BUILD_DIR)/obj/buildtools/third_party/libc++abi/libc++abi.a
+    LIBCXXABI_OBJ_FILES := $(shell $(LLVM_AR) t $(LIBCXXABI_A))
+
+    V8_LINKFLAGS += $(LIBCXX_OBJ_FILES) $(LIBCXXABI_OBJ_FILES)
+
+    V8_MONOLITH_LIB := $(V8_BUILD_DIR)/obj/libv8_monolith.a
+
+    V8_LINKFLAGS += $(V8_MONOLITH_LIB) $(JVMV8_V8_MONOLITH_RLIB)
+
+    JVMV8_LINKFLAGS += $(V8_LINKFLAGS)
+
+    JVMV8_LINKFLAGS += -framework CoreFoundation
+else ifeq ($(TARGET_OS), linux)
+    CXXFLAGS += \
+        -fuse-ld=lld \
+        --sysroot=$(V8_SYSROOT) \
+        #
+
+    JVMV8_LINKFLAGS := -pthread -ldl
+
+    # Set up link path: $ORIGIN and rpath (see: JDK-8326891)
+    JVMV8_LINKFLAGS += -Wl,-rpath,\$(DOLLAR)ORIGIN -Wl,--disable-new-dtags
+
+    # Set noexecstack
+    JVMV8_LINKFLAGS += -Wl,-z,noexecstack
+
+    # Error out on missing symbols
+    JVMV8_LINKFLAGS += -z defs
+
+    # Set up v8 linking
+    V8_LINKFLAGS :=
+
+    V8_LINKFLAGS += $(V8_BUILD_DIR)/obj/buildtools/third_party/libc++/libc++.a
+    V8_LINKFLAGS += $(V8_BUILD_DIR)/obj/buildtools/third_party/libc++abi/libc++abi.a
+
+    V8_LINKFLAGS += -Wl,--whole-archive $(V8_MONOLITH_LIB) -Wl,--no-whole-archive $(JVMV8_V8_MONOLITH_RLIB)
+
+    # This is more important than it might seem: without it, v8 crashes in
+    # mysterious ways, presumably because the wrong symbols/implementations
+    # are being picked up and used.
+    V8_LINKFLAGS += -Wl,--version-script=$(TOPDIR)/make/version-script.txt
+
+    V8_LINKFLAGS += $(V8_REPO)/third_party/llvm-build/Release+Asserts/lib/clang/22/lib/$(CLANG_TARGET)/libclang_rt.builtins.a
+
+    JVMV8_LINKFLAGS += $(V8_LINKFLAGS)
+else
+    $(error Unknown TARGET_OS: $(TARGET_OS))
+endif
+
+################################################################################
+
+
+ALL_TARGETS :=
+
+
+$(JVMV8_JAVA_CLASSES_MARKER): $(JVMV8_JAVA_SRCS)
+	$(MKDIR) -p $(@D)
+	$(MKDIR) -p $(JVMV8_JAVA_CLASSES_DIR)
+	$(JAVAC) \
+	  --release $(JVMV8_JAVA_RELEASE) \
+	  -Xlint:unchecked,deprecation \
+	  -sourcepath $(JVMV8_JAVA_SRC_DIR) \
+	  -d $(JVMV8_JAVA_CLASSES_DIR) \
+	  $(JVMV8_JAVA_SRCS)
+	$(TOUCH) $@
+
+
+$(JVMV8_DOCS_MARKER): $(JVMV8_JAVA_SRCS)
+	@$(MKDIR) -p $(@D)
+	@$(JAVADOC) \
+	  --release $(JVMV8_JAVA_RELEASE) \
+	  -sourcepath $(JVMV8_JAVA_SRC_DIR) \
+	  -d $(JVMV8_DOCS_DIR) \
+	  org.openjdk.engine.javascript
+	$(TOUCH) $@
+
+ALL_TARGETS += $(JVMV8_DOCS_MARKER)
+
+
+$(JVMV8_GEN_INCLUDE_DIR)/org_openjdk_engine_javascript_internal_V8.h: $(JVMV8_JAVA_CLASSES_MARKER) $(JVMV8_JAVA_SRC_DIR)/org/openjdk/engine/javascript/internal/V8.java
+	$(JAVAC) -cp $(JVMV8_JAVA_CLASSES_DIR) -h $(@D) -d $(JVMV8_DUMMY_JAVA_CLASSES_DIR) $(JVMV8_JAVA_SRC_DIR)/org/openjdk/engine/javascript/internal/V8.java
+
+
+$(JVMV8_JAR_MANIFEST_FILE_WITH_VERSION): $(JVMV8_JAR_MANIFEST_FILE)
+	$(MKDIR) -p $(@D)
+	$(CP) $(JVMV8_JAR_MANIFEST_FILE) $@.tmp
+	$(ECHO) "Implementation-Version: $(DETROIT_BUILD_VER)" >> $@.tmp
+	$(MV) $@.tmp $@
+
+
+$(JVMV8_JAR): $(JVMV8_JAR_MANIFEST_FILE_WITH_VERSION) $(JVMV8_JAVA_CLASSES_MARKER) $(JVMV8_JAVA_RESOURCES) $(JVMV8_LIB)
+	$(MKDIR) -p $(@D)
+	$(CP) -r $(JVMV8_JAVA_RESOURCES_DIR) $(JVMV8_JAVA_CLASSES_DIR)/org/openjdk/engine/javascript/internal
+	$(CP) -r $(JVMV8_LIB) $(JVMV8_JAVA_CLASSES_DIR)/org/openjdk/engine/javascript/internal
+	$(CP) -r $(JVMV8_JAVA_SRC_DIR)/META-INF $(JVMV8_JAVA_CLASSES_DIR)
+	$(JAR) cfm $(JVMV8_JAR) $(JVMV8_JAR_MANIFEST_FILE_WITH_VERSION) -C $(JVMV8_JAVA_CLASSES_DIR) .
+
+ALL_TARGETS += $(JVMV8_JAR)
+
+ifneq ($(JVMV8_V8_MONOLITH_RLIB), )
+$(JVMV8_V8_MONOLITH_RLIB): $(V8_MONOLITH_LIB_RLIB_DEPS)
+	@$(MKDIR) -p $(@D)
+	$(RM) -rf $(JVMV8_REPACK_V8_MONOLITH_DIR)/obj
+	@$(MKDIR) -p $(JVMV8_REPACK_V8_MONOLITH_DIR)/obj
+	($(CD) $(JVMV8_REPACK_V8_MONOLITH_DIR)/obj && \
+	    for rlib in $(V8_MONOLITH_LIB_RLIB_DEPS); do \
+	        $(MKDIR) -p $$(basename $$rlib); \
+		($(CD) $$(basename $$rlib) && $(AR) x $$rlib); \
+	    done \
+	)
+	($(CD) $(JVMV8_REPACK_V8_MONOLITH_DIR)/obj && $(AR) -r -c -D $@.tmp $$($(FIND) . -name "*.o"))
+	$(MV) $@.tmp $@
+endif
+
+$(JVMV8_LIB): $(JVMV8_GEN_INCLUDE_DIR)/org_openjdk_engine_javascript_internal_V8.h $(JVMV8_NATIVE_ALL_FILES) $(V8_MONOLITH_LIB) $(JVMV8_V8_MONOLITH_RLIB)
+	$(MKDIR) -p $(@D)
+	$(V8_CXX) -I$(JVMV8_GEN_INCLUDE_DIR) $(CXXFLAGS) $(JVMV8_NATIVE_SRC_FILES) $(JVMV8_LINKFLAGS) -o $@.tmp
+ifeq ($(TARGET_OS), macos)
+	$(INSTALL_NAME_TOOL) -id @rpath/$(JVMV8_LIB_FILE_NAME) $@.tmp
+endif
+	$(MV) $@.tmp $@
+
+ALL_TARGETS += $(JVMV8_LIB)
+
+
+
+####
+#
+# Exported targets
+#
+
+# Build the jvmv8 jar and native library
+all: $(ALL_TARGETS)
+
+TARGETS += all
+
+
+# Build the jvmv8 jar file
+jar: $(JVMV8_JAR)
+
+TARGETS += jar
+
+
+# Build the jvmv8 native library
+jvmv8: $(JVMV8_LIB)
+
+TARGETS += jvmv8
+
+
+# Regenerate the jvmv8_java_classes.hpp jvmv8_java_classes.cpp files
+genjavaclasses:
+	jjs -scripting $(TOPDIR)/genjavaclasses -- $(JVMV8_NATIVE_SRC_DIR)
+
+TARGETS += genjavaclasses
+
+
+javadoc: $(JVMV8_DOCS_MARKER)
+
+TARGETS += javadoc
+
+.PHONY: $(TARGETS)
+

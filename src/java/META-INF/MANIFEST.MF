@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Name: org.openjdk.engine.javascript
+Implementation-Vendor: Oracle Corporation
+Main-Class: org.openjdk.engine.javascript.Main

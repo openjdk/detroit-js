@@ -1,0 +1,228 @@
+#
+# Copyright (c) 2025, Oracle and/or its affiliates. All rights reserved.
+# DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+#
+# This code is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License version 2 only, as
+# published by the Free Software Foundation.  Oracle designates this
+# particular file as subject to the "Classpath" exception as provided
+# by Oracle in the LICENSE file that accompanied this code.
+#
+# This code is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+# version 2 for more details (a copy is included in the LICENSE file that
+# accompanied this code).
+#
+# You should have received a copy of the GNU General Public License version
+# 2 along with this work; if not, write to the Free Software Foundation,
+# Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+#
+# Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+# or visit www.oracle.com if you need additional information or have any
+# questions.
+#
+
+SHELL := /bin/bash
+
+EMPTY :=
+SPACE := $(EMPTY) $(EMPTY)
+DOLLAR := $$
+
+UNAME := $(shell uname)
+UNAME_m := $(shell uname -m)
+ifeq ($(UNAME),Darwin)
+    HOST_OS := macos
+    JDK_JNI_OS := darwin
+    BRAND := $(shell sysctl -n machdep.cpu.brand_string)
+
+    ifneq (,$(findstring Apple, $(BRAND)))
+        HOST_CPU := aarch64
+    else
+        HOST_CPU := x64
+    endif
+else
+    HOST_OS := linux
+    JDK_JNI_OS := linux
+    ifeq ($(UNAME_M),aarch64)
+        HOST_CPU := aarch64
+    else
+        HOST_CPU := x64
+    endif
+endif
+
+HOST_PLATFORM := $(HOST_OS)-$(HOST_CPU)
+
+TARGET_OS := $(HOST_OS)
+ifeq ($(TARGET_CPU),)
+    TARGET_CPU := $(HOST_CPU)
+endif
+
+TARGET_PLATFORM := $(TARGET_OS)-$(TARGET_CPU)
+
+ifeq ($(HOST_CPU), x64)
+    V8_HOST_CPU := x64
+else ifeq ($(HOST_CPU), aarch64)
+    V8_HOST_CPU := arm64
+else
+    $(error Unknown HOST_CPU: $(HOST_CPU))
+endif
+
+ifeq ($(TARGET_CPU), x64)
+    V8_TARGET_CPU := x64
+    ifeq ($(TARGET_OS), macos)
+        CLANG_TARGET := x86_64-apple-darwin25.1.0
+    else
+        CLANG_TARGET := x86_64-unknown-linux-gnu
+    endif
+else ifeq ($(TARGET_CPU), aarch64)
+    V8_TARGET_CPU := arm64
+    CLANG_TARGET=aarch64-unknown-linux-gnu
+else
+    $(error "Unsupported target cpu: $(TARGET_CPU)")
+endif
+
+ifneq ($(HOST_OS), $(TARGET_OS))
+    $(error "Cross compiling across operating systems not supported")
+endif
+
+ifeq ($(TARGET_OS), macos)
+    LIB_PREFIX := lib
+    LIB_SUFFIX := .dylib
+else ifeq ($(TARGET_OS), linux)
+    LIB_PREFIX := lib
+    LIB_SUFFIX := .so
+else
+    $(error "OS not supported yet")
+endif
+
+
+####
+#
+# Tools
+#
+
+AWK := awk
+CAT := cat
+CD := cd
+CP := cp
+CUT := cut
+ECHO := echo
+FIND := find
+GIT := git
+LN := ln
+MKDIR := mkdir
+MV := mv
+NINJA := ninja
+RM := rm
+SED := sed
+TAR := tar
+TOUCH := touch
+
+ifeq ($(TARGET_OS), macos)
+    INSTALL_NAME_TOOL := install_name_tool
+endif
+
+
+####
+#
+# Build directory information
+#
+
+BUILD_DIR := $(TOPDIR)/build/$(TARGET_PLATFORM)
+
+MARKERS_DIR := $(BUILD_DIR)/make-support
+
+NATIVE_DIR := $(BUILD_DIR)/native
+
+
+####
+#
+# Version information
+#
+
+include $(TOPDIR)/conf/v8/version.conf
+
+ifneq ($(wildcard $(TOPDIR)/.git),)
+  GIT_REV_ONLY := $(shell $(CD) $(TOPDIR) && $(GIT) rev-parse HEAD)
+  GIT_REV_SUFFIX := $(if $(shell $(CD) $(TOPDIR) && $(GIT) status --porcelain),+)
+  GIT_REV := $(GIT_REV_ONLY)$(GIT_REV_SUFFIX)
+  GIT_REV_SHORT := $(shell $(ECHO) $(GIT_REV) | $(CUT) -c1-8)$(GIT_REV_SUFFIX)
+  GIT_REV_FILE := $(JVMV8_BUILD_DIR)/.git-rev
+endif
+
+DATE := $(shell date +%Y-%m-%d)
+DETROIT_BUILD_VER := $(DATE)$(if $(GIT_REV_SHORT),+$(GIT_REV_SHORT))
+
+
+####
+#
+# v8
+#
+
+V8_ROOT_DIR := $(TOPDIR)/v8
+V8_REPO := $(V8_ROOT_DIR)/v8
+V8_CONF_DIR := $(TOPDIR)/conf/v8
+V8_BUILD_DIR := $(BUILD_DIR)/v8/$(V8_TARGET_CPU).release
+
+V8_INCLUDE_DIRS := \
+    $(V8_REPO) \
+    $(V8_REPO)/include \
+    $(V8_REPO)/third_party/abseil-cpp \
+    $(V8_REPO)/third_party/fp16/src/include \
+    $(V8_BUILD_DIR)/gen \
+    $(V8_BUILD_DIR)/gen/include \
+    $(V8_REPO)/buildtools/third_party/libc++ \
+    $(V8_REPO)/third_party/libc++/src/include \
+    #
+
+V8_CXX := $(V8_REPO)/third_party/llvm-build/Release+Asserts/bin/clang++
+V8_DEFINES := \
+    -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE \
+    #
+
+# Needed when building v8 debug?
+#V8_DEFINES += -DV8_ENABLE_CHECKS=ENABLED
+
+ifeq ($(TARGET_OS), linux)
+    ifeq ($(V8_TARGET_CPU),x64)
+        V8_SYSROOT=$(V8_REPO)/build/linux/debian_bullseye_amd64-sysroot
+    else ifeq ($(V8_TARGET_CPU),arm64)
+        V8_SYSROOT=$(V8_REPO)/build/linux/debian_bullseye_arm64-sysroot
+    else
+        $(error "Unknown V8_TARGET_CPU: $(V8_TARGET_CPU)")
+    endif
+endif
+
+
+####
+#
+# jvmv8
+#
+
+JVMV8_MODULE_NAME := org.openjdk.engine.javascript
+
+JVMV8_BUILD_DIR := $(BUILD_DIR)/jvmv8
+JVMV8_JAR_FILE_NAME := $(JVMV8_MODULE_NAME).jar
+JVMV8_JAR := $(JVMV8_BUILD_DIR)/jar/$(JVMV8_JAR_FILE_NAME)
+JVMV8_DOCS_DIR := $(JVMV8_BUILD_DIR)/docs
+
+JVMV8_LIB_FILE_NAME := $(LIB_PREFIX)jvmv8$(LIB_SUFFIX)
+JVMV8_LIB_DIR := $(JVMV8_BUILD_DIR)/lib
+JVMV8_LIB := $(JVMV8_LIB_DIR)/$(JVMV8_LIB_FILE_NAME)
+
+####
+#
+# Dist information
+#
+
+DIST_DIR := $(BUILD_DIR)/dist/org.openjdk.engine.javascript
+DIST_LIB_DIR := $(DIST_DIR)/lib
+DIST_JAR := $(DIST_LIB_DIR)/$(JVMV8_JAR_FILE_NAME)
+DIST_MODULE_PATH := $(DIST_JAR)
+
+# Java options needed to run detroit
+DIST_JAVA_OPTIONS := \
+    --module-path $(DIST_MODULE_PATH) \
+    --enable-native-access=$(JVMV8_MODULE_NAME) \
+    #
