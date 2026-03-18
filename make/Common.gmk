@@ -182,7 +182,9 @@ V8_DEFINES := \
     #
 
 # Needed when building v8 debug?
-#V8_DEFINES += -DV8_ENABLE_CHECKS=ENABLED
+ifeq ($(DEBUG_LEVEL), debug)
+    V8_DEFINES += -DV8_ENABLE_CHECKS=ENABLED
+endif
 
 ifeq ($(TARGET_OS), linux)
     ifeq ($(V8_TARGET_CPU),x64)

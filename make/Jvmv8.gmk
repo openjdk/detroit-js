@@ -52,10 +52,10 @@ JAVA_HOME_INCLUDES := $(addprefix -I,$(JAVA_HOME_INCLUDE_DIRS))
 
 JVMV8_DOCS_MARKER := $(MARKERS_DIR)/jvmv8.javadoc.marker
 
-CXXFLAGS := -shared -fPIC -fpermissive -std=c++20
+CXXFLAGS := -shared -fPIC -fpermissive -std=c++20 -g 
 
-ifneq ($(DEBUG_LEVEL), debug)
-    CXXFLAGS += -g
+ifdef ENABLE_ASAN
+    CXXFLAGS += -fno-omit-frame-pointer -fsanitize=address
 endif
 
 ifneq ($(HOST_CPU), $(TARGET_CPU))
@@ -154,6 +154,14 @@ else ifeq ($(TARGET_OS), linux)
     V8_LINKFLAGS += $(V8_REPO)/third_party/llvm-build/Release+Asserts/lib/clang/22/lib/$(CLANG_TARGET)/libclang_rt.builtins.a
 
     JVMV8_LINKFLAGS += $(V8_LINKFLAGS)
+
+    JVMV8_LINKFLAGS += -Wl,--build-id
+
+    ifdef ENABLE_ASAN
+        JVMV8_LINKFLAGS += -fsanitize=address
+        JVMV8_LINKFLAGS += $(V8_REPO)/third_party/llvm-build/Release+Asserts/lib/clang/22/lib/$(CLANG_TARGET)/libclang_rt.asan.a
+        JVMV8_LINKFLAGS += $(V8_REPO)/third_party/llvm-build/Release+Asserts/lib/clang/22/lib/$(CLANG_TARGET)/libclang_rt.asan_cxx.a
+    endif
 else
     $(error Unknown TARGET_OS: $(TARGET_OS))
 endif
