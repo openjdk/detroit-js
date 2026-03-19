@@ -216,13 +216,22 @@ V8Scope::V8Scope(JNIEnv* env, jlong isolateRef, jlong objectRef) :
 
 // Constructor when Java env and V8 isolate are known
 V8Scope::V8Scope(JNIEnv* env, Isolate* isolate) :
-    V8Scope(env, isolate, isolate->GetCurrentContext()) {
+    env(env),
+    isolate(isolate),
+    locker(this->isolate),
+    isolateScope(this->isolate),
+    handleScope(this->isolate),
+    tryCatch(this->isolate),
+    // MUST NOT call GetCurrentContext before locking and
+    // entering the isolate by creating locker and isolateScope above
+    context(isolate->GetCurrentContext()),
+    contextScope(context) {
     TRACE("V8Scope::V8Scope 3");
 }
 
 // Constructor when only the isolate is known
 V8Scope::V8Scope(Isolate* isolate) :
-    V8Scope(JVMV8IsolateData::getEnv(isolate), isolate, isolate->GetCurrentContext()) {
+    V8Scope(JVMV8IsolateData::getEnv(isolate), isolate) {
     TRACE("V8Scope::V8Scope 4");
 }
 
