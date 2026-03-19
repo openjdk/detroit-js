@@ -129,7 +129,11 @@ endif
 # Build directory information
 #
 
-BUILD_DIR := $(TOPDIR)/build/$(TARGET_PLATFORM)
+ifdef DEBUG_LEVEL
+    BUILD_DIR := $(TOPDIR)/build/$(TARGET_PLATFORM)-$(DEBUG_LEVEL)
+else
+    BUILD_DIR := $(TOPDIR)/build/$(TARGET_PLATFORM)
+endif
 
 MARKERS_DIR := $(BUILD_DIR)/make-support
 

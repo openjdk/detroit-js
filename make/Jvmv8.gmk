@@ -54,8 +54,8 @@ JVMV8_DOCS_MARKER := $(MARKERS_DIR)/jvmv8.javadoc.marker
 
 CXXFLAGS := -shared -fPIC -fpermissive -std=c++20 -g 
 
-ifdef ENABLE_ASAN
-    CXXFLAGS += -fno-omit-frame-pointer -fsanitize=address
+ifeq ($(DEBUG_LEVEL), debug)
+    CXXFLAGS += -g
 endif
 
 ifneq ($(HOST_CPU), $(TARGET_CPU))
