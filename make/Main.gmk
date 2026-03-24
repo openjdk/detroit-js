@@ -106,7 +106,7 @@ mvn-install: dist
 	  -Dfile=$(DIST_JAR) \
 	  -DgroupId=org.openjdk \
 	  -DartifactId=engine-javascript \
-	  -Dversion=1.0 \
+	  -Dversion=0.1-SNAPSHOT \
 	  -Dpackaging=jar
 
 TARGETS += mvn-install
