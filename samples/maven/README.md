@@ -14,4 +14,8 @@ mvn install:install-file \
 
 Alternatively, the make build has a `mvn-install` target which does the same.
 
+After that, the project can be built, and tests can be run with:
 
+```
+mvn test
+```
