@@ -47,11 +47,7 @@ ifeq ($(V8_REVISION),)
     $(error V8_REVISION not set)
 endif
 
-ifeq ($(DEBUG_LEVEL), debug)
-	V8_CONF_FILE := $(V8_CONF_DIR)/$(V8_TARGET_CPU).debug.args.gn
-else
-	V8_CONF_FILE := $(V8_CONF_DIR)/$(V8_TARGET_CPU).args.gn
-endif
+V8_CONF_FILE := $(V8_CONF_DIR)/$(V8_TARGET_CPU).$(DEBUG_LEVEL).args.gn
 
 V8_BUILD_MARKER := $(MARKERS_DIR)/v8.build.marker
 

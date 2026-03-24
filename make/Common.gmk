@@ -96,6 +96,15 @@ else
     $(error "OS not supported yet")
 endif
 
+VALID_DEBUG_LEVELS := release debug
+
+ifndef DEBUG_LEVEL
+    DEBUG_LEVEL := release
+else
+    ifeq ($(filter $(DEBUG_LEVEL),$(VALID_DEBUG_LEVELS)),)
+        $(error "DEBUG_LEVEL must be in: $(VALID_DEBUG_LEVELS)")
+    endif
+endif
 
 ####
 #
@@ -129,11 +138,7 @@ endif
 # Build directory information
 #
 
-ifdef DEBUG_LEVEL
-    BUILD_DIR := $(TOPDIR)/build/$(TARGET_PLATFORM)-$(DEBUG_LEVEL)
-else
-    BUILD_DIR := $(TOPDIR)/build/$(TARGET_PLATFORM)
-endif
+BUILD_DIR := $(TOPDIR)/build/$(TARGET_PLATFORM)-$(DEBUG_LEVEL)
 
 MARKERS_DIR := $(BUILD_DIR)/make-support
 
