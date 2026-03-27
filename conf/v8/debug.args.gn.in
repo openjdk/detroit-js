@@ -1,0 +1,3 @@
+v8_enable_verification_features=true
+v8_enable_slow_dchecks=true
+symbol_level=2

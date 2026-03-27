@@ -37,7 +37,7 @@ JVMV8_JAVA_RESOURCES := $(shell $(FIND) $(JVMV8_JAVA_RESOURCES_DIR) -type f)
 
 JVMV8_GEN_INCLUDE_DIR := $(JVMV8_BUILD_DIR)/include
 JVMV8_JAVA_CLASSES_DIR := $(JVMV8_BUILD_DIR)/classes
-JVMV8_JAVA_CLASSES_MARKER := $(MARKERS_DIR)/jvmv8.classes.marker
+JVMV8_JAVA_CLASSES_MARKER := $(MAKE_SUPPORT_DIR)/jvmv8.classes.marker
 # Provide a dummy directory for the redundant class files produced by javac -h
 JVMV8_DUMMY_JAVA_CLASSES_DIR := $(JVMV8_BUILD_DIR)/classes-dummy
 
@@ -50,11 +50,11 @@ JVMV8_NATIVE_SRC_FILES := $(shell $(FIND) $(JVMV8_NATIVE_SRC_DIR) -name "*.cpp")
 
 JAVA_HOME_INCLUDES := $(addprefix -I,$(JAVA_HOME_INCLUDE_DIRS))
 
-JVMV8_DOCS_MARKER := $(MARKERS_DIR)/jvmv8.javadoc.marker
+JVMV8_DOCS_MARKER := $(MAKE_SUPPORT_DIR)/jvmv8.javadoc.marker
 
 CXXFLAGS := -shared -fPIC -fpermissive -std=c++20
 
-ifneq ($(DEBUG_LEVEL), debug)
+ifeq ($(DEBUG_LEVEL), debug)
     CXXFLAGS += -g
 endif
 

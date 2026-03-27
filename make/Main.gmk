@@ -80,6 +80,10 @@ test-all: $(TEST_TARGETS)
 
 TARGETS += test-all
 
+micro: dist
+	$(CD) $(TOPDIR)/make && $(MAKE) $(MAKE_ARGS) -f Micro.gmk $@
+
+TARGETS += micro
 
 clean:
 	rm -fr $(BUILD_DIR)

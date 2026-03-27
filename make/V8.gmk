@@ -47,9 +47,11 @@ ifeq ($(V8_REVISION),)
     $(error V8_REVISION not set)
 endif
 
-V8_CONF_FILE := $(V8_CONF_DIR)/$(V8_TARGET_CPU).args.gn
+V8_CONF_FILE_IN := $(V8_CONF_DIR)/args.gn.in
+V8_DEBUG_CONF_FILE_IN := $(V8_CONF_DIR)/debug.args.gn.in
+V8_CONF_FILE := $(MAKE_SUPPORT_DIR)/$(V8_TARGET_CPU).$(DEBUG_LEVEL).args.gn
 
-V8_BUILD_MARKER := $(MARKERS_DIR)/v8.build.marker
+V8_BUILD_MARKER := $(MAKE_SUPPORT_DIR)/v8.build.marker
 
 all: build
 
@@ -65,6 +67,23 @@ build: $(V8_BUILD_MARKER)
 
 TARGETS += build
 
+ifeq ($(DEBUG_LEVEL),debug)
+    V8_ENABLE_ASSERTS := true
+	V8_ENABLE_DEBUG := true
+else
+    V8_ENABLE_ASSERTS := false
+	V8_ENABLE_DEBUG := false
+endif
+
+$(V8_CONF_FILE): $(V8_CONF_FILE_IN) $(V8_DEBUG_CONF_FILE_IN)
+	$(SED) \
+		-e 's/@V8_ENABLE_DEBUG@/$(V8_ENABLE_DEBUG)/g' \
+		-e 's/@TARGET_CPU@/$(TARGET_CPU)/g' \
+		-e 's/@V8_ENABLE_ASSERTS@/$(V8_ENABLE_ASSERTS)/g' \
+		$< > $@
+ifeq ($(DEBUG_LEVEL),debug)
+	$(CAT) $(V8_DEBUG_CONF_FILE_IN) >> $@
+endif
 
 $(V8_BUILD_MARKER): .FORCE $(V8_CONF_FILE)
 	$(MKDIR) -p $(@D)

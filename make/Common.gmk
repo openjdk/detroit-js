@@ -96,6 +96,15 @@ else
     $(error "OS not supported yet")
 endif
 
+VALID_DEBUG_LEVELS := release debug
+
+ifndef DEBUG_LEVEL
+    DEBUG_LEVEL := release
+else
+    ifeq ($(filter $(DEBUG_LEVEL),$(VALID_DEBUG_LEVELS)),)
+        $(error "DEBUG_LEVEL must be in: $(VALID_DEBUG_LEVELS)")
+    endif
+endif
 
 ####
 #
@@ -129,9 +138,9 @@ endif
 # Build directory information
 #
 
-BUILD_DIR := $(TOPDIR)/build/$(TARGET_PLATFORM)
+BUILD_DIR := $(TOPDIR)/build/$(TARGET_PLATFORM)-$(DEBUG_LEVEL)
 
-MARKERS_DIR := $(BUILD_DIR)/make-support
+MAKE_SUPPORT_DIR := $(BUILD_DIR)/make-support
 
 NATIVE_DIR := $(BUILD_DIR)/native
 
@@ -163,7 +172,7 @@ DETROIT_BUILD_VER := $(DATE)$(if $(GIT_REV_SHORT),+$(GIT_REV_SHORT))
 V8_ROOT_DIR := $(TOPDIR)/v8
 V8_REPO := $(V8_ROOT_DIR)/v8
 V8_CONF_DIR := $(TOPDIR)/conf/v8
-V8_BUILD_DIR := $(BUILD_DIR)/v8/$(V8_TARGET_CPU).release
+V8_BUILD_DIR := $(BUILD_DIR)/v8/$(V8_TARGET_CPU).$(DEBUG_LEVEL)
 
 V8_INCLUDE_DIRS := \
     $(V8_REPO) \
@@ -182,7 +191,9 @@ V8_DEFINES := \
     #
 
 # Needed when building v8 debug?
-#V8_DEFINES += -DV8_ENABLE_CHECKS=ENABLED
+ifeq ($(DEBUG_LEVEL), debug)
+    V8_DEFINES += -DV8_ENABLE_CHECKS=ENABLED
+endif
 
 ifeq ($(TARGET_OS), linux)
     ifeq ($(V8_TARGET_CPU),x64)
