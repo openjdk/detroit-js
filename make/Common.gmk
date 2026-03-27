@@ -140,7 +140,7 @@ endif
 
 BUILD_DIR := $(TOPDIR)/build/$(TARGET_PLATFORM)-$(DEBUG_LEVEL)
 
-MARKERS_DIR := $(BUILD_DIR)/make-support
+MAKE_SUPPORT_DIR := $(BUILD_DIR)/make-support
 
 NATIVE_DIR := $(BUILD_DIR)/native
 

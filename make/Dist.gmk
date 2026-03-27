@@ -33,7 +33,7 @@ SAMPLES := $(filter-out $(SAMPLES_DIR)/failing,$(wildcard $(SAMPLES_DIR)/*))
 
 JMODS_DIR := $(BUILD_DIR)/jmods
 JMOD_FILE := $(JMODS_DIR)/$(JVMV8_MODULE_NAME).jmod
-JMODS_MARKER := $(MARKERS_DIR)/jmods.marker
+JMODS_MARKER := $(MAKE_SUPPORT_DIR)/jmods.marker
 
 ifneq ($(GIT_REV_SHORT),)
     DIST_GIT_REV_FILE := $(DIST_DIR)/.git-rev
@@ -46,7 +46,7 @@ DIST_DOCS_DIR := $(DIST_DIR)/docs
 DIST_JMODS_DIR := $(DIST_DIR)/jmods
 DIST_SAMPLES_DIR := $(DIST_DIR)/samples
 
-DIST_MARKER := $(MARKERS_DIR)/dist.marker
+DIST_MARKER := $(MAKE_SUPPORT_DIR)/dist.marker
 
 $(JMODS_MARKER): $(JVMV8_JAR) $(JVMV8_LIB)
 	@$(MKDIR) -p $(@D)
