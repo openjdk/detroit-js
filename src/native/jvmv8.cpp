@@ -97,7 +97,6 @@ int contextGroupId = 1;
 JVMV8IsolateData::JVMV8IsolateData(JNIEnv* env, Isolate* isolate, JavaVM* jvm,  bool javaSupport, bool inspector) :
     jvm(jvm),
     javaSupport(javaSupport),
-    persistentsPool(new V8PersistentPoolManager(isolate)),
     globalTemplate() {
     TRACE("JVMV8IsolateData::JVMV8IsolateData");
 
@@ -125,17 +124,6 @@ JVMV8IsolateData::JVMV8IsolateData(JNIEnv* env, Isolate* isolate, JavaVM* jvm,  
 
     inspectorClient = inspector? new JVMV8InspectorClient(isolate, contextGroupId++) : nullptr;
     v8Isolate = nullptr;
-}
-
-// Destructor for jvmv8 isolate data
-JVMV8IsolateData::~JVMV8IsolateData() {
-    TRACE("JVMV8IsolateData::~JVMV8IsolateData");
-    this->globalTemplate.Reset();
-    this->jsObjectTemplate.Reset();
-    this->jsObjectCallableTemplate.Reset();
-    this->jvmTemplate.Reset();
-    this->javaObject.Reset();
-    delete persistentsPool;
 }
 
 // Get JNI env indirectly from isolate
@@ -408,129 +396,12 @@ void run_boot_script(V8Scope& scope) {
     scope.throwV8Exception("Bootscript did not return a java wrap function");
 }
 
-// Allocate a clump of persistents for storing Java objects
-V8PersistentPool::V8PersistentPool(Isolate* isolate, V8PersistentPool *next) :
-    isolate(isolate), next(next), cursor(0) {
-    TRACE("V8PersistentPool::V8PersistentPool");
-}
-
-// Deallocate remaining references to Java objects
-V8PersistentPool::~V8PersistentPool() {
-    TRACE("V8PersistentPool::~V8PersistentPool");
-    // Java env (could be store in pool, but thread local is handy enough)
-    JNIEnv* env = JVMV8IsolateData::getEnv(isolate);
-    JNI jni(env);
-
-    // For each persistent
-    for (int i = 0; i < MAXIMUM; i++) {
-        // Next persistent
-        Persistent<void*>* persistent = persistents + i;
-        if (!persistent->IsEmpty()) {
-            Persistent<Value>* valuePersistent = reinterpret_cast<Persistent<Value>*>(persistent);
-            Local<Value> value = valuePersistent->Get(isolate);
-
-            if (value->IsExternal()) {
-                // Fetch V8 external reference to java object
-                Local<External> external = value.As<External>();
-                // Fetch Java object reference
-                jobject globalRef = reinterpret_cast<jobject>(external->Value());
-                // Dispose of Java reference
-                jni.DeleteGlobalRef(globalRef);
-            }
-        }
-
-        persistent->Reset();
-    }
-}
-
-// Scan for next available V8 persistent
-Persistent<void*>* V8PersistentPool::scan() {
-    TRACE("V8PersistentPool::scan");
-    while (cursor != MAXIMUM) {
-        Persistent<void*>* persistent = persistents + cursor++;
-
-        // If persistent is unused
-        if (persistent->IsEmpty()) {
-            return persistent;
-        }
-    }
-
-    // No V8 persistents available in this pool
-    return nullptr;
-}
-
-// Scan from first to last (exclusive, can be nullptr for end of list) pool.
-Persistent<void*>* V8PersistentPoolManager::scan(V8PersistentPool *first, V8PersistentPool *last) {
-    TRACE("V8PersistentPoolManager::~V8PersistentPoolManager");
-    for (V8PersistentPool *p = first; p != last; p = p->nextPool()) {
-        Persistent<void*>* persistent = p->scan();
-
-        // If found, return V8 persistent
-        if (persistent) {
-            // Update searches start
-            current = p;
-
-            return persistent;
-        }
-    }
-
-    // No V8 persistents found
-    return nullptr;
-}
-
-// Make sure all Java references are disposed of properly
-V8PersistentPoolManager::~V8PersistentPoolManager() {
-    TRACE("V8PersistentPoolManager::~V8PersistentPoolManager");
-    while (pools) {
-        current = pools->nextPool();
-        delete pools;
-        pools = current;
-    }
-}
-
-// Search for a free V8 persistent
-Persistent<void*>* V8PersistentPoolManager::nextPersistent() {
-    TRACE("V8PersistentPoolManager::nextPersistent");
-    Persistent<void*>* persistent;
-
-    // Scan from last search pool to end of list
-    if ((persistent = scan(current, nullptr))) {
-        return persistent;
-    }
-
-    // Scan from start of list to last search pool
-    if ((persistent = scan(pools, current))) {
-        return persistent;
-    }
-
-    // Force gc
-    isolate->LowMemoryNotification();
-
-    // Restart all pools to start at beginning
-    for (V8PersistentPool *p = pools; p; p = p->nextPool()) {
-        p->Restart();
-    }
-
-    // Try again after gc
-    if ((persistent = scan(pools, nullptr))) {
-        return persistent;
-    }
-
-    // Allocate a new pool
-    pools = new V8PersistentPool(isolate, pools);
-    // Search again with new pool
-    persistent = scan(pools, nullptr);
-    assert(persistent != nullptr);
-
-    return persistent;
-}
-
 struct track_value_callback_info {
-    Persistent<External>* persistent;
+    Global<External> global;
     jobject object;
 
-    track_value_callback_info(Persistent<External>* persistent, jobject object)
-        : persistent(persistent), object(object) {
+    track_value_callback_info(jobject object)
+        : object(object) {
     }
 };
 
@@ -551,27 +422,25 @@ static void track_value_callback(const WeakCallbackInfo<track_value_callback_inf
         */
 
         jni.DeleteGlobalRef(info->object);
-        info->persistent->Reset();
         delete info;
     }
 }
 
-// Track usage of jobject value
-Local<External> V8PersistentPoolManager::trackValue(V8Scope& scope, jobject object) {
-    TRACE("V8PersistentPoolManager::trackValue");
+// Track usage of jobject value from javascript
+static Local<External> track_java_value(V8Scope& scope, jobject object) {
+    TRACE("track_java_value");
     if (object == nullptr) return Local<External>();
     JNI jni(scope);
-    // Allocate a V8 persistent for the object
-    Persistent<External>* persistent = reinterpret_cast<Persistent<External>*>(nextPersistent());
     // Get a JNI global reference for the object
     jobject globalRef = jni.NewGlobalRef(object);
     // Create a V8 external for the Java reference
     Local<External> external = External::New(scope.isolate, globalRef);
-    // Have persistent track external
-    persistent->Reset(scope.isolate, external);
     // Set callback to handle gc of external
-    track_value_callback_info* info = new track_value_callback_info(persistent, globalRef);
-    persistent->SetWeak(info, track_value_callback, WeakCallbackType::kParameter);
+    track_value_callback_info* info = new track_value_callback_info(globalRef);
+    // Have persistent track external
+    info->global.Reset(scope.isolate, external);
+    // track_value_callback will clean up the global ref & persistent & delete the info
+    info->global.SetWeak(info, track_value_callback, WeakCallbackType::kParameter);
 
     return external;
 }
@@ -579,9 +448,7 @@ Local<External> V8PersistentPoolManager::trackValue(V8Scope& scope, jobject obje
 // Register a Java object with V8
 Local<External> j2v_object(V8Scope& scope, jobject object) {
     TRACE("j2v_object");
-    V8PersistentPoolManager* persistents = JVMV8IsolateData::getPersistentsPool(scope.isolate);
-
-    return persistents->trackValue(scope, object);
+    return track_java_value(scope, object);
 }
 
 // Register a generic pointer with V8
@@ -692,8 +559,7 @@ jlong v2j_unboundscript(V8Scope& scope, MaybeLocal<Script> local) {
     if (!local.IsEmpty()) {
         Local<Script> script = local.ToLocalChecked();
         Local<UnboundScript> unboundScript = script->GetUnboundScript();
-        V8PersistentPoolManager* persistents = JVMV8IsolateData::getPersistentsPool(scope.isolate);
-        return persistents->persist(unboundScript);
+        return track_js_value(scope.isolate, unboundScript);
     } else {
         return 0L;
     }
@@ -702,7 +568,7 @@ jlong v2j_unboundscript(V8Scope& scope, MaybeLocal<Script> local) {
 // Convert unbound script reference to V8 UnboundScript
 Local<UnboundScript> j2v_unboundscript(V8Scope& scope, jlong unboundScriptRef) {
     TRACE("j2v_unboundscript");
-    const Persistent<UnboundScript>* script = fromReference<const Persistent<UnboundScript>*>(unboundScriptRef);
+    const Global<UnboundScript>* script = fromReference<const Global<UnboundScript>*>(unboundScriptRef);
     return script->Get(scope.isolate);
 }
 
@@ -856,7 +722,7 @@ Local<Value> j2v(V8Scope& scope, jobject object) {
         jlong reference = jni.CallLongMethod(object, v8ObjectCheckAndGetReferenceMethodID, scope.isolateRef());
         assert(!jni.checkException());
         if (reference != 0L) {
-            const Persistent<Object>* obj = fromReference<const Persistent<Object>*>(reference);
+            const Global<Object>* obj = fromReference<const Global<Object>*>(reference);
             return obj->Get(scope.isolate);
         }
         // Not the same isolate - needs wrapping
@@ -864,7 +730,7 @@ Local<Value> j2v(V8Scope& scope, jobject object) {
         jlong reference = jni.CallLongMethod(object, v8SymbolCheckAndGetReferenceMethodID, scope.isolateRef());
         assert(!jni.checkException());
         if (reference != 0L) {
-            const Persistent<Symbol>* symbol = fromReference<const Persistent<Symbol>*>(reference);
+            const Global<Symbol>* symbol = fromReference<const Global<Symbol>*>(reference);
             return symbol->Get(scope.isolate);
         }
         // Not the same isolate - needs wrapping
@@ -894,8 +760,8 @@ Local<Value> j2v_reference(V8Scope& scope, jlong objectRef) {
 
 Local<Value> j2v_reference(Isolate* isolate, jlong objectRef) {
     TRACE("j2v_reference");
-    Persistent<Value>* persistent = fromReference<Persistent<Value>*>(objectRef);
-    return persistent->Get(isolate);
+    Global<Value>* global = fromReference<Global<Value>*>(objectRef);
+    return global->Get(isolate);
 }
 
 Local<Context> j2v_context(Isolate* isolate, jlong objectRef) {
@@ -1114,16 +980,8 @@ jobject v2j_symbol(V8Scope& scope, Local<Symbol> value) {
     TRACE("v2j_symbol");
     JNI jni(scope);
     jstring jstr = v2j_string(scope, value);
-    V8PersistentPoolManager* persistents = JVMV8IsolateData::getPersistentsPool(scope.isolate);
-    jlong ref = persistents->persist(value);
+    jlong ref = track_js_value(scope.isolate, value);
     return jni.CallStaticObjectMethod(v8SymbolClass, v8SymbolCreateMethodID, ref, jstr);
-}
-
-// Convert a V8 context to a Java 'long reference'
-jlong v2j_context(Isolate* isolate, Local<Context> context) {
-    TRACE("v2j_context");
-    V8PersistentPoolManager* persistents = JVMV8IsolateData::getPersistentsPool(isolate);
-    return persistents->persist(context);
 }
 
 // Throw a V8 exception as a Java exception and clear the V8 exception.

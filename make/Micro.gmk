@@ -50,7 +50,7 @@ BENCHMARK_JAR := $(MICRO_SUPPORT_DIR)/benchmarks.jar
 
 MICRO_SOURCE_DIR := $(TOPDIR)/micro
 MICRO_SOURCES := $(shell $(FIND) $(MICRO_SOURCE_DIR) -name "*.java")
-MICRO_CLASSES_MARKER = $(MARKERS_DIR)/micro.classes.marker
+MICRO_CLASSES_MARKER = $(MAKE_SUPPORT_DIR)/micro.classes.marker
 
 MICRO_OPTIONS ?=
 

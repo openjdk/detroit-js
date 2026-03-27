@@ -69,9 +69,6 @@ extern void term_platform();
 // V8 context slot used to store jvmv8 JavaWrap function
 #define V8_CONTEXT_JAVA_WRAP 1
 
-// Forward class declaration
-class V8PersistentPoolManager;
-
 // Convert a V8 reference to a long that can be handled by Java
 inline jlong toReference(void *ptr) {
     return reinterpret_cast<jlong>(ptr);
@@ -89,23 +86,19 @@ class JVMV8IsolateData {
 private:
     JavaVM* jvm;                                 // JVM using isolate
     bool javaSupport;                            // If java support is added for JavaScript
-    Persistent<UnboundScript> bootScript;        // Script executed initially for Java support
-    Persistent<Symbol> javaObject;               // javaObject symbol used for unwrapping wrapped Java objects
-    V8PersistentPoolManager* persistentsPool;    // Bridging objects used by isolate
-    Persistent<ObjectTemplate> globalTemplate;   // Global template used for all contexts
-    Persistent<ObjectTemplate> jvmTemplate;      // Template with JVM support
-    Persistent<ObjectTemplate> jsObjectTemplate; // Template with JSObject support
-    Persistent<ObjectTemplate> jsObjectCallableTemplate; // Template with callable JSObject support
-    Persistent<Value> securityToken;             // Shared security token (if all Contexts use the same token)
+    Global<UnboundScript> bootScript;        // Script executed initially for Java support
+    Global<Symbol> javaObject;               // javaObject symbol used for unwrapping wrapped Java objects
+    Global<ObjectTemplate> globalTemplate;   // Global template used for all contexts
+    Global<ObjectTemplate> jvmTemplate;      // Template with JVM support
+    Global<ObjectTemplate> jsObjectTemplate; // Template with JSObject support
+    Global<ObjectTemplate> jsObjectCallableTemplate; // Template with callable JSObject support
+    Global<Value> securityToken;             // Shared security token (if all Contexts use the same token)
 
     JVMV8InspectorClient* inspectorClient;
     jobject v8Isolate; // weak reference!
 
     // Constructor for jvmv8 isolate data
     JVMV8IsolateData(JNIEnv* env, Isolate* isolate, JavaVM* jvm, bool javaSupport, bool inspector);
-
-    // Destructor for jvmv8 isolate data
-    ~JVMV8IsolateData();
 
     // Set data in isolate
     static void setData(Isolate* isolate, JVMV8IsolateData* data) {
@@ -154,11 +147,6 @@ public:
     // Get JNI env indirectly from isolate
     static JNIEnv* getEnv(Isolate* isolate);
 
-    // Get persistent manager from isolate data
-    static V8PersistentPoolManager* getPersistentsPool(Isolate* isolate) {
-        return getData(isolate)->persistentsPool;
-    }
-
     static void setGlobalTemplate(Isolate* isolate, Local<ObjectTemplate>& globalTemplate) {
         getData(isolate)->globalTemplate.Reset(isolate, globalTemplate);
     }
@@ -184,7 +172,7 @@ public:
     }
 
     // Get security token (non-Empty only if all Contexts share token).
-    static Persistent<Value>& getSecurityToken(Isolate* isolate) {
+    static Global<Value>& getSecurityToken(Isolate* isolate) {
         return getData(isolate)->securityToken;
     }
 
@@ -371,69 +359,6 @@ public:
 // Evaluate the Java supporting boot script
 void run_boot_script(V8Scope& scope);
 
-// A collection of V8 persistents (managed by a V8PersistentPoolManager.)
-class V8PersistentPool {
-private:
-    static const int MAXIMUM = 4096;           // Maximum number of peristents in this pool
-    Isolate* isolate;                          // V8 isolate managing this pool
-    V8PersistentPool* next;                    // Link to next pool
-    int cursor;                                // Next entry to be allocated
-    Persistent<void*> persistents[MAXIMUM];    // Pool of persistents to store bridging objects
-
-public:
-    // Constructor
-    V8PersistentPool(Isolate* isolate, V8PersistentPool *next);
-
-    // Deallocate remaining references to Java objects
-    ~V8PersistentPool();
-
-    // Scan for next available V8 persistent
-    Persistent<void*>* scan();
-
-    // Access to next pool handled by V8PersistentPoolManager
-    V8PersistentPool* nextPool() {
-        return next;
-    }
-
-    // Restart scan to first V8 persistent in pool
-    void Restart() {
-        cursor = 0;
-    }
-};
-
-// Manager of persistent references to bridging objects.
-class V8PersistentPoolManager {
-private:
-    Isolate* isolate;          // V8 isolate managing this pool
-    V8PersistentPool* pools;   // Linked list of pools managed by this V8PersistentPoolManager
-    V8PersistentPool* current; // Next pool to be scanned for free V8 persistents
-
-    // Scan from first to last (exclusive, can be nullptr for end of list) pool.
-    Persistent<void*>* scan(V8PersistentPool *first, V8PersistentPool *last);
-
-    // Search for a free V8 persistent
-    Persistent<void*>* nextPersistent();
-
-public:
-    // Constructor
-    V8PersistentPoolManager(Isolate* isolate) : isolate(isolate) {
-        // Create a pool and start searches there
-        this->pools = this->current = new V8PersistentPool(isolate, nullptr);
-    }
-
-    // Make sure all Java references are disposed of properly
-    ~V8PersistentPoolManager();
-
-    // Track usage of jobject value
-    Local<External> trackValue(V8Scope& scope, jobject object);
-
-    template <class T> jlong persist(Local<T> value) {
-        Persistent<T>* persistent = reinterpret_cast<Persistent<T>*>(nextPersistent());
-        persistent->Reset(isolate, value);
-        return toReference(persistent);
-    }
-};
-
 // Java to V8 and V8 to Java value conversion utilities.
 // These are not expected to throw any Java exception or translate
 // java exception as V8 exception and throw! Any such unlikely
@@ -538,21 +463,23 @@ extern jstring v2j_string(V8Scope& scope, Local<Value> value);
 // Convert a V8 symbol to a Java object
 extern jobject v2j_symbol(V8Scope& scope, Local<Symbol> value);
 
-// Convert a V8 context to a Java 'long reference'
-extern jlong v2j_context(Isolate* isolate, Local<Context> context);
-
 // Rethrow a V8 exception as a Java exception
 extern void handle_script_exception(V8Scope& scope);
 
 // Stop the show
 extern void fatal_error(const char* message);
 
+// Track usage of js object from java
+template<typename T>
+jlong track_js_value(Isolate* isolate, Local<T> local) {
+    return toReference(new Global<T>(isolate, local));
+}
+
 // Create a Java V8Reference object
 inline jobject v2j_reference(V8Scope& scope, Local<Object> value, jclass clazz, jmethodID methodID) {
     TRACE("v2j_reference");
     JNI jni(scope);
-    V8PersistentPoolManager* persistents = JVMV8IsolateData::getPersistentsPool(scope.isolate);
-    jlong objectRef = persistents->persist(value);
+    jlong objectRef = track_js_value(scope.isolate, value);
     return jni.CallStaticObjectMethod(clazz, methodID, objectRef);
 }
 
