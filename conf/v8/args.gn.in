@@ -1,7 +1,7 @@
 is_component_build=false
 is_debug=@V8_ENABLE_DEBUG@
-target_cpu="@TARGET_CPU@"
-v8_target_cpu="@TARGET_CPU@"
+target_cpu="@V8_TARGET_CPU@"
+v8_target_cpu="@V8_TARGET_CPU@"
 v8_enable_backtrace=true
 v8_enable_disassembler=true
 v8_enable_object_print=true
