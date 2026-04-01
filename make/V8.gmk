@@ -76,6 +76,7 @@ else
 endif
 
 $(V8_CONF_FILE): $(V8_CONF_FILE_IN) $(V8_DEBUG_CONF_FILE_IN)
+	$(MKDIR) -p $(@D)
 	$(SED) \
 		-e 's/@V8_ENABLE_DEBUG@/$(V8_ENABLE_DEBUG)/g' \
 		-e 's/@TARGET_CPU@/$(TARGET_CPU)/g' \
