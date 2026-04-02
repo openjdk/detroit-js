@@ -83,3 +83,28 @@ ${JAVA_HOME}/bin/java -version
   ```
 
   The resulting .tar.gz bundle is written to `build/<platform-specific-dir>/bundles/`.
+
+## Enabling V8 flags via environment variable
+
+**JVMV8_FLAGS** environment variable can be set with
+[V8 flags](https://chromium.googlesource.com/v8/v8/+/master/src/flags/flag-definitions.h)
+
+### To enable dumping heap snapshot on out of memory crash
+
+```sh
+export JVMV8_FLAGS=--heap-snapshot-on-oom
+```
+
+#### To enable tracing/logging,
+
+```sh
+export JVMV8_FLAGS=--trace
+```
+
+```sh
+export JVMV8_FLAGS=--trace-exception
+```
+
+```sh
+export JVMV8_FLAGS=--log-all
+```
