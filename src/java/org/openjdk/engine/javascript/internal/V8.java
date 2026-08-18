@@ -194,9 +194,11 @@ public final class V8 {
 
     private native static V8Object createGlobal0(long isolateRef, boolean setSecurityToken, String contextName);
     static V8Object createGlobal(V8Isolate isolate, String contextName) {
-        long isolateRef = isolate.getReference();
         V8Object global = runInIsolate(isolate, (Supplier<V8Object>)() -> {
-            return createGlobal0(isolateRef, !(SECURITY_TOKEN_PER_CONTEXT), contextName);
+            synchronized (isolate) {
+                long isolateRef = isolate.getReference();
+                return createGlobal0(isolateRef, !(SECURITY_TOKEN_PER_CONTEXT), contextName);
+            }
         });
         if (V8.DEBUG) {
             if (global != null) {
@@ -215,11 +217,13 @@ public final class V8 {
     }
 
     private native static void releaseReference0(long isolateRef, long ref);
-    static void releaseReference(long isolateRef, String className, long ref) {
-        if (V8.DEBUG) {
-            debugPrintf("Releasing %s: 0x%x", className, ref);
+    static void releaseReference(V8Isolate isolate, String className, long ref) {
+        synchronized (isolate) {
+            if (V8.DEBUG) {
+                debugPrintf("Releasing %s: 0x%x", className, ref);
+            }
+            releaseReference0(isolate.getReference(), ref);
         }
-        releaseReference0(isolateRef, ref);
     }
 
     // stack trace helper

@@ -51,9 +51,7 @@ abstract class V8Reference {
     private static Runnable referenceCleaner(V8Isolate isolate, String className, long reference) {
         return () -> {
             try {
-                if (!isolate.isDisposed()) {
-                    V8.releaseReference(isolate.getReference(), className, reference);
-                }
+                V8.releaseReference(isolate, className, reference);
             } catch (Throwable th) {
                 // Any Throwable from cleaner thunk results from System.exit!
                 // If DEBUG mode, print stack trace. Or else swallow it!
