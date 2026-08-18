@@ -139,6 +139,29 @@ public class JSImportTest {
     }
 
     @Test
+    public void testImportResolverNullReturn() throws Throwable {
+        ScriptEngineManager sem = new ScriptEngineManager();
+        ScriptEngine e = sem.getEngineByName(ENGINE_NAME);
+
+        V8ModuleResolver resolver = (_, _) -> {
+            return null;
+        };
+        e.getContext().setAttribute(V8ScriptEngine.MODULE_RESOLVER, resolver, ScriptContext.ENGINE_SCOPE);
+
+        try {
+            ((V8ScriptEngine) e).loadModule("""
+                    import { add } from './mymod.js';
+                    export function func() {
+                      return add(2, 3);
+                    }
+                    """);
+            throw new AssertionError("should have thrown exception");
+        } catch (V8ScriptException ex) {
+            assertTrue(ex.getEcmaError().toString().contains("Can not import module. Module resolver returned null."));
+        }
+    }
+
+    @Test
     public void testImportDynamic() throws Throwable {
         ScriptEngineManager sem = new ScriptEngineManager();
         ScriptEngine e = sem.getEngineByName(ENGINE_NAME);

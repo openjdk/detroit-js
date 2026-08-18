@@ -1702,7 +1702,11 @@ public final class V8 {
             throw new ScriptException("Can not import module. No module resolver callback has been registered.");
         }
         Map<String, String> attribMap = readImportAttributes(importAttributes);
-        return resolver.resolve(specifier, attribMap);
+        String mod = resolver.resolve(specifier, attribMap);
+        if (mod == null) {
+            throw new ScriptException("Can not import module. Module resolver returned null.");
+        }
+        return mod;
     }
 
     private static Map<String, String> readImportAttributes(String[] importAttributes) {
