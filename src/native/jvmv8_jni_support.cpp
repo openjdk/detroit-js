@@ -1749,10 +1749,9 @@ jint JNI::ThrowNew(jclass clazz, jmethodID methodID,...) {
     assert(methodID != 0);
     va_list args;
     va_start(args, methodID);
-    va_end(args);
-
     printAndClearException();
     jthrowable jexp = (jthrowable)env->NewObjectV(clazz, methodID, args);
+    va_end(args);
     return jexp != nullptr? env->Throw(jexp) : -1; // exception while creating an exception!
 }
 
