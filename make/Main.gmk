@@ -105,4 +105,14 @@ clean-all-but-v8:
 
 TARGETS += clean-all-but-v8
 
+mvn-install: dist
+	mvn install:install-file \
+	  -Dfile=$(DIST_JAR) \
+	  -DgroupId=org.openjdk \
+	  -DartifactId=engine-javascript \
+	  -Dversion=0.1-SNAPSHOT \
+	  -Dpackaging=jar
+
+TARGETS += mvn-install
+
 .PHONY: $(TARGETS)
