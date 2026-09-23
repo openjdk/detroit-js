@@ -108,3 +108,15 @@ export JVMV8_FLAGS=--trace-exception
 ```sh
 export JVMV8_FLAGS=--log-all
 ```
+
+* Recommended usage note
+
+The detroit-js engine must not be used to execute arbitrary or untrusted code.
+Recommended that script code be not interpolated with user input arguments.
+There are two detroit-js engine variants.
+
+1. The "v8" engine. This engine provides full Java access from scripts.
+Java types, objects can be directly used from scripts.
+
+2. The "v8-no-java" engine. This engine does not provide direct java
+types, objects access from scripts.
