@@ -26,6 +26,11 @@
 #ifndef __jvmv8_h__
 #define __jvmv8_h__
 
+#include <algorithm>
+#include <map>
+#include <string>
+#include <vector>
+
 using namespace v8;
 
 class TRACER {
@@ -66,6 +71,9 @@ extern void term_platform();
 // V8 isolate slot used to store jvmv8 data
 #define V8_ISOLATE_JVMV8_DATA 0
 
+// V8 context slot used to store context ID
+#define V8_CONTEXT_ID 0
+
 // V8 context slot used to store jvmv8 JavaWrap function
 #define V8_CONTEXT_JAVA_WRAP 1
 
@@ -96,6 +104,9 @@ private:
 
     JVMV8InspectorClient* inspectorClient;
     jobject v8Isolate; // weak reference!
+
+    uint64_t nextContextId;
+    std::map<uint64_t, std::map<std::string, Global<Module>>> contextModuleCaches;
 
     // Constructor for jvmv8 isolate data
     JVMV8IsolateData(JNIEnv* env, Isolate* isolate, JavaVM* jvm, bool javaSupport, bool inspector);
@@ -182,6 +193,37 @@ public:
 
     static jobject getV8Isolate(Isolate* isolate) {
          return getData(isolate)->v8Isolate;
+    }
+
+    static uint64_t getContextId(Local<Context>& context) {
+        if (context.IsEmpty()) return 0;
+        void* ptr = context->GetAlignedPointerFromEmbedderData(V8_CONTEXT_ID);
+        if (ptr == nullptr) {
+            Isolate* isolate = context->GetIsolate();
+            uint64_t id = ++getData(isolate)->nextContextId;
+            ptr = reinterpret_cast<void*>(static_cast<uintptr_t>(id));
+            context->SetAlignedPointerInEmbedderData(V8_CONTEXT_ID, ptr);
+        }
+        return static_cast<uint64_t>(reinterpret_cast<uintptr_t>(ptr));
+    }
+
+    static Local<Module> getCachedModule(Isolate* isolate, Local<Context>& context, const std::string& key) {
+        uint64_t ctxId = getContextId(context);
+        JVMV8IsolateData* data = getData(isolate);
+        auto ctxIt = data->contextModuleCaches.find(ctxId);
+        if (ctxIt != data->contextModuleCaches.end()) {
+            auto modIt = ctxIt->second.find(key);
+            if (modIt != ctxIt->second.end()) {
+                return modIt->second.Get(isolate);
+            }
+        }
+        return Local<Module>();
+    }
+
+    static void setCachedModule(Isolate* isolate, Local<Context>& context, const std::string& key, Local<Module> module) {
+        uint64_t ctxId = getContextId(context);
+        JVMV8IsolateData* data = getData(isolate);
+        data->contextModuleCaches[ctxId][key].Reset(isolate, module);
     }
 
     static void inspectorSendResponse(Isolate* isolate, int callId, Local<String> str);
