@@ -111,12 +111,13 @@ export JVMV8_FLAGS=--log-all
 
 * Recommended usage note
 
-The detroit-js engine must not be used to execute arbitrary or untrusted code.
-Recommended that script code be not interpolated with user input arguments.
-There are two detroit-js engine variants.
+The "v8" engine provides access to many resources (types, objects) in the embedding
+Java runtime. As such, using this engine to run arbitrary or untrusted JavaScript
+code is strongly discouraged.
 
-1. The "v8" engine. This engine provides full Java access from scripts.
-Java types, objects can be directly used from scripts.
+Users should prefer the "v8-no-java" engine, where access to Java resources has
+to be explicitly granted by the embedding Java application (e.g. by means of a
+callback function).
 
-2. The "v8-no-java" engine. This engine does not provide direct java
-types, objects access from scripts.
+Moreover, when using both engines, it is recommended that script code be not
+interpolated with user input arguments without proper validation.
