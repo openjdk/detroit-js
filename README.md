@@ -108,3 +108,16 @@ export JVMV8_FLAGS=--trace-exception
 ```sh
 export JVMV8_FLAGS=--log-all
 ```
+
+* Recommended usage note
+
+The "v8" engine provides access to many resources (types, objects) in the embedding
+Java runtime. As such, using this engine to run arbitrary or untrusted JavaScript
+code is strongly discouraged.
+
+Users should prefer the "v8-no-java" engine, where access to Java resources has
+to be explicitly granted by the embedding Java application (e.g. by means of a
+callback function).
+
+Moreover, when using both engines, it is recommended that script code be not
+interpolated with user input arguments without proper validation.
