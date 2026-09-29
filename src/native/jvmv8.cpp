@@ -97,7 +97,8 @@ int contextGroupId = 1;
 JVMV8IsolateData::JVMV8IsolateData(JNIEnv* env, Isolate* isolate, JavaVM* jvm,  bool javaSupport, bool inspector) :
     jvm(jvm),
     javaSupport(javaSupport),
-    globalTemplate() {
+    globalTemplate(),
+    nextContextId(0) {
     TRACE("JVMV8IsolateData::JVMV8IsolateData");
 
     V8Scope scope(env, isolate);

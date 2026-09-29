@@ -129,12 +129,37 @@ static MaybeLocal<Module> resolve_module_impl(V8Scope& scope, Local<Context> con
         javaAttrs -= numAttrs / 3;
     }
     jobjectArray jarr = jni.NewObjectArray(javaAttrs, stringClass, nullptr);
+    std::vector<std::pair<std::string, std::string>> attrs;
     for (int src = 0, dst = 0; src < numAttrs; src += (attribs_have_source ? 3 : 2)) {
         Local<String> key = import_attributes->Get(src).As<String>();
         Local<String> value = import_attributes->Get(src + 1).As<String>();
 
         jni.SetObjectArrayElement(jarr, dst++, v2j_string(scope, key));
         jni.SetObjectArrayElement(jarr, dst++, v2j_string(scope, value));
+
+        String::Utf8Value utf8_key(scope.isolate, key);
+        String::Utf8Value utf8_val(scope.isolate, value);
+        attrs.push_back({
+            *utf8_key != nullptr ? std::string(*utf8_key, utf8_key.length()) : "",
+            *utf8_val != nullptr ? std::string(*utf8_val, utf8_val.length()) : ""
+        });
+    }
+
+    String::Utf8Value utf8_specifier(scope.isolate, specifier);
+    std::string spec_str = *utf8_specifier != nullptr ? std::string(*utf8_specifier, utf8_specifier.length()) : "";
+
+    std::sort(attrs.begin(), attrs.end());
+    std::string cache_key = spec_str;
+    for (const auto& attr : attrs) {
+        cache_key.push_back('\0');
+        cache_key.append(attr.first);
+        cache_key.push_back('=');
+        cache_key.append(attr.second);
+    }
+
+    Local<Module> cached = JVMV8IsolateData::getCachedModule(scope.isolate, context, cache_key);
+    if (!cached.IsEmpty()) {
+        return cached;
     }
 
     // upcall into Java (don't use the utility method, since it clears the exception)
@@ -152,7 +177,14 @@ static MaybeLocal<Module> resolve_module_impl(V8Scope& scope, Local<Context> con
 
     ScriptOrigin origin = moduleScriptOrigin(specifier);
     ScriptCompiler::Source script_source(j2v_string(scope, (jstring) moduleContents), origin);
-    return ScriptCompiler::CompileModule(scope.isolate, &script_source);
+    MaybeLocal<Module> maybeModule = ScriptCompiler::CompileModule(scope.isolate, &script_source);
+    if (scope.handledV8Exception() || maybeModule.IsEmpty()) {
+        return MaybeLocal<Module>();
+    }
+
+    Local<Module> module = maybeModule.ToLocalChecked();
+    JVMV8IsolateData::setCachedModule(scope.isolate, context, cache_key, module);
+    return module;
 }
 
 static MaybeLocal<Module> resolve_module(Local<Context> context, Local<String> specifier,
@@ -182,9 +214,22 @@ static MaybeLocal<Promise> resolve_module_dynamic(Local<Context> context, Local<
         if (resolver->Reject(context, scope.getV8Exception()).IsEmpty()) return MaybeLocal<Promise>();
     } else {
         Local<Module> mod = res.ToLocalChecked();
-        (void)mod->InstantiateModule(scope.context, &resolve_module);
-        if (scope.checkV8Exception()) {
-            if (resolver->Reject(context, scope.getV8Exception()).IsEmpty()) return MaybeLocal<Promise>();
+        if (mod->GetStatus() == Module::kUnlinked) {
+            Maybe<bool> instResult = mod->InstantiateModule(scope.context, &resolve_module);
+            if (scope.checkV8Exception() || instResult.IsEmpty() || !instResult.FromJust()) {
+                if (resolver->Reject(context, scope.getV8Exception()).IsEmpty()) return MaybeLocal<Promise>();
+                return resolver->GetPromise();
+            }
+        }
+        if (mod->GetStatus() == Module::kLinked) {
+            MaybeLocal<Value> maybeResult = mod->Evaluate(scope.context);
+            if (scope.checkV8Exception() || maybeResult.IsEmpty()) {
+                if (resolver->Reject(context, scope.getV8Exception()).IsEmpty()) return MaybeLocal<Promise>();
+                return resolver->GetPromise();
+            }
+        }
+        if (mod->GetStatus() == Module::kErrored) {
+            if (resolver->Reject(context, mod->GetException()).IsEmpty()) return MaybeLocal<Promise>();
         } else {
             if (resolver->Resolve(context, mod->GetModuleNamespace()).IsEmpty()) return MaybeLocal<Promise>();
         }
@@ -458,6 +503,13 @@ JNIEXPORT jobject JNICALL Java_org_openjdk_engine_javascript_internal_V8_loadMod
     if (scope.handledV8Exception() || maybeModule.IsEmpty()) return nullptr;
 
     Local<Module> module = maybeModule.ToLocalChecked();
+
+    String::Utf8Value utf8_name(scope.isolate, j2v_string(scope, name));
+    std::string name_str = *utf8_name != nullptr ? std::string(*utf8_name, utf8_name.length()) : "";
+    if (!name_str.empty() && name_str != "<eval>") {
+        JVMV8IsolateData::setCachedModule(scope.isolate, scope.context, name_str, module);
+    }
+
     Maybe<bool> instResult = module->InstantiateModule(scope.context, &resolve_module);
     if (scope.handledV8Exception() || instResult.IsEmpty()) return nullptr;
 

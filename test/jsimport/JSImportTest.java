@@ -29,6 +29,7 @@ import org.openjdk.engine.javascript.V8ExecutionControl;
 import org.openjdk.engine.javascript.V8ModuleResolver;
 import org.openjdk.engine.javascript.V8ScriptEngine;
 import org.openjdk.engine.javascript.V8ScriptException;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
@@ -66,6 +67,27 @@ public class JSImportTest {
                 return a + b;
             }
             """);
+        Files.writeString(Path.of("circA.js"), """
+            import { valueB } from './circB.js';
+            export const valueA = "Hello from A";
+            export function testA() {
+                return valueB;
+            }
+            """);
+        Files.writeString(Path.of("circB.js"), """
+            import { valueA } from './circA.js';
+            export const valueB = "Hello from B";
+            export function testB() {
+                return valueA;
+            }
+            """);
+    }
+
+    @AfterClass
+    public void tearDown() throws Throwable {
+        Files.deleteIfExists(Path.of("mymod.js"));
+        Files.deleteIfExists(Path.of("circA.js"));
+        Files.deleteIfExists(Path.of("circB.js"));
     }
 
     @Test
@@ -259,6 +281,70 @@ public class JSImportTest {
             assertTrue(ex.getCause() instanceof RuntimeException);
             assertEquals(ex.getCause().getMessage(), "Testing Exception");
         }
+    }
+
+    @Test
+    public void testCircularImport() throws Throwable {
+        ScriptEngineManager sem = new ScriptEngineManager();
+        ScriptEngine e = sem.getEngineByName(ENGINE_NAME);
+
+        V8ModuleResolver resolver = JSImportTest::resolveModule;
+        e.getContext().setAttribute(V8ScriptEngine.MODULE_RESOLVER, resolver, ScriptContext.ENGINE_SCOPE);
+
+        JSObject obj = ((V8ScriptEngine) e).loadModule("""
+            import { testA } from './circA.js';
+            export function func() {
+                return testA();
+            }
+            """);
+        assertEquals(obj.callMember("func"), "Hello from B");
+
+        JSObject objB = ((V8ScriptEngine) e).loadModule("""
+            import { testB } from './circB.js';
+            export function func() {
+                return testB();
+            }
+            """);
+        assertEquals(objB.callMember("func"), "Hello from A");
+    }
+
+    @Test
+    public void testModuleResolverCaching() throws Throwable {
+        ScriptEngineManager sem = new ScriptEngineManager();
+        ScriptEngine e = sem.getEngineByName(ENGINE_NAME);
+
+        java.util.concurrent.atomic.AtomicInteger callCountA = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicInteger callCountB = new java.util.concurrent.atomic.AtomicInteger();
+
+        V8ModuleResolver resolver = (spec, attr) -> {
+            if ("./circA.js".equals(spec)) {
+                callCountA.incrementAndGet();
+            } else if ("./circB.js".equals(spec)) {
+                callCountB.incrementAndGet();
+            }
+            return resolveModule(spec, attr);
+        };
+        e.getContext().setAttribute(V8ScriptEngine.MODULE_RESOLVER, resolver, ScriptContext.ENGINE_SCOPE);
+
+        JSObject obj = ((V8ScriptEngine) e).loadModule("""
+            import { testA } from './circA.js';
+            export function func() {
+                return testA();
+            }
+            """);
+        assertEquals(obj.callMember("func"), "Hello from B");
+        assertEquals(callCountA.get(), 1);
+        assertEquals(callCountB.get(), 1);
+
+        // Subsequent loadModule in the same engine should reuse cached modules without re-resolving
+        JSObject obj2 = ((V8ScriptEngine) e).loadModule("""
+            import { valueA } from './circA.js';
+            export function func2() {
+                return valueA;
+            }
+            """);
+        assertEquals(obj2.callMember("func2"), "Hello from A");
+        assertEquals(callCountA.get(), 1);
     }
 
     private static String resolveModule(String specifier, Map<String, String> importAttributes) {
